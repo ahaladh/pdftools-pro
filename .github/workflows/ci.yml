@@ -1,0 +1,131 @@
+name: CI
+
+on:
+  push: { branches: [main] }
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Use the services below instead of downloading/compiling MongoDB and Redis inside the tests.
+  REDIS_URL: redis://localhost:6379
+
+jobs:
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+        env: { REDISMS_DISABLE_POSTINSTALL: '1', PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1' }
+      # Production dependencies must be free of known high/critical vulnerabilities.
+      - run: npm audit --omit=dev --audit-level=high
+
+  test:
+    name: Typecheck, unit and integration tests
+    runs-on: ubuntu-24.04
+    services:
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - name: System engines used by the PDF tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ghostscript poppler-utils imagemagick util-linux \
+            libreoffice-writer libreoffice-calc libreoffice-impress fonts-liberation python3
+      - name: MongoDB database tools (backup/restore drill)
+        run: |
+          curl -fsSL -o /tmp/mdbtools.tgz https://fastdl.mongodb.org/tools/db/mongodb-database-tools-ubuntu2204-x86_64-100.10.0.tgz
+          mkdir -p "$HOME/mongo-tools" && tar xzf /tmp/mdbtools.tgz --strip-components=2 -C "$HOME/mongo-tools" --wildcards '*/bin/*'
+          echo "MONGO_TOOLS_DIR=$HOME/mongo-tools" >> "$GITHUB_ENV"
+      - run: npm ci
+        env: { REDISMS_DISABLE_POSTINSTALL: '1', PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1' }
+      - run: npm run typecheck
+      - run: npm test   # pdf-core, api (guest, accounts on a real mongod, BullMQ on real Redis, security, limits), web
+
+  e2e:
+    name: End-to-end (Chrome, API + worker + MongoDB + Redis)
+    runs-on: ubuntu-24.04
+    needs: test
+    services:
+      redis:
+        image: redis:7
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - name: System engines, nginx and Chrome
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ghostscript poppler-utils imagemagick util-linux nginx \
+            libreoffice-writer libreoffice-calc libreoffice-impress fonts-liberation python3
+          sudo systemctl disable --now nginx   # the tests start their own nginx instances
+          echo "NGINX_BIN=$(command -v nginx)" >> "$GITHUB_ENV"
+          curl -fsSL https://github.com/caddyserver/caddy/releases/download/v2.8.4/caddy_2.8.4_linux_amd64.tar.gz | sudo tar xz -C /usr/local/bin caddy
+          echo "CADDY_BIN=/usr/local/bin/caddy" >> "$GITHUB_ENV"
+          npx --yes playwright@1.49 install --with-deps chrome
+      - run: npm ci
+        env: { REDISMS_DISABLE_POSTINSTALL: '1', PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1' }
+      - run: SITE_URL=http://localhost:4173 npm run test:e2e
+      # Same suite plus the image-contents verification (executes the real Dockerfiles' COPY/npm steps in clean directories).
+      - run: E2E_VERIFY_IMAGES=1 npx playwright test tests/09-images.spec.ts
+        working-directory: e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-diagnostics
+          path: |
+            e2e/test-results
+            e2e/.logs
+          retention-days: 7
+
+  docker:
+    name: Docker images build and smoke test
+    runs-on: ubuntu-24.04
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f infrastructure/docker/Dockerfile.api --build-arg APP_VERSION=ci -t pdftools-api .
+      - run: docker build -f infrastructure/docker/Dockerfile.web --build-arg SITE_URL=http://localhost:8080 -t pdftools-web .
+      - name: Full stack via compose, then the post-deploy smoke test
+        # Containers read configuration from .env (env_file), NOT from the step's environment, so write it explicitly.
+        run: |
+          cat > .env <<'EOF'
+          SITE_URL=http://localhost:8080
+          PUBLIC_URL=http://localhost:8080
+          CORS_ORIGINS=http://localhost:8080
+          TRUST_PROXY=1
+          MONGO_USER=pdftools
+          MONGO_PASSWORD=ci-only-password
+          DOWNLOAD_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef
+          JWT_ACCESS_SECRET=fedcba9876543210fedcba9876543210fedcba9876543210
+          METRICS_TOKEN=ci-metrics-token-123
+          APP_VERSION=ci
+          RATE_LIMIT_ENABLED=true
+          EOF
+          docker compose up -d --build
+          for i in $(seq 1 60); do curl -fs http://127.0.0.1:8080/healthz && break; sleep 3; done
+          docker compose ps
+          node infrastructure/scripts/smoke.mjs http://127.0.0.1:8080
+          # doctor flags the http:// URLs above as failures by design (production would use https); we only require it to RUN.
+          docker compose exec -T api node apps/api/dist/doctor.js --json | head -c 2000
+      - if: failure()
+        run: docker compose logs --no-color --tail 200
+      - if: always()
+        run: docker compose down -v

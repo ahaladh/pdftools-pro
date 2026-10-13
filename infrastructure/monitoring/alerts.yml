@@ -1,0 +1,90 @@
+# Alert rules. Each alert says what is wrong, why it matters, and what to do first (see docs/OPERATIONS.md for the runbooks).
+groups:
+  - name: pdftools-availability
+    rules:
+      - alert: PdfToolsApiDown
+        expr: up{job="pdftools-api"} == 0
+        for: 2m
+        labels: { severity: page }
+        annotations: { summary: "API instance {{ $labels.instance }} is not answering", runbook: "docs/OPERATIONS.md#api-down" }
+      - alert: PdfToolsNoWorkers
+        expr: count(up{job="pdftools-worker"} == 1) < 1 or absent(up{job="pdftools-worker"})
+        for: 2m
+        labels: { severity: page }
+        annotations: { summary: "No job worker is running: uploads are accepted but nothing is processed", runbook: "docs/OPERATIONS.md#no-workers" }
+      - alert: PdfToolsPublicProbeFailing
+        expr: probe_success{job="pdftools-public"} == 0
+        for: 3m
+        labels: { severity: page }
+        annotations: { summary: "The public site/health endpoint is unreachable from outside", runbook: "docs/OPERATIONS.md#api-down" }
+      - alert: PdfToolsStuckDraining
+        expr: pdftools_draining == 1
+        for: 10m
+        labels: { severity: warn }
+        annotations: { summary: "{{ $labels.instance }} has been draining for 10 minutes (a shutdown that never finished?)" }
+
+  - name: pdftools-processing
+    rules:
+      - alert: PdfToolsQueueBacklog
+        expr: pdftools_queue_jobs{state="waiting"} > 50
+        for: 5m
+        labels: { severity: warn }
+        annotations: { summary: "{{ $value }} jobs waiting for 5+ minutes: add workers or check for stuck jobs", runbook: "docs/OPERATIONS.md#queue-backlog" }
+      - alert: PdfToolsHighJobFailureRatio
+        expr: |
+          sum(rate(pdftools_jobs_total{outcome="failed"}[15m]))
+            / clamp_min(sum(rate(pdftools_jobs_total[15m])), 1 / 900) > 0.25
+          and sum(rate(pdftools_jobs_total[15m])) * 900 > 20
+        for: 15m
+        labels: { severity: warn }
+        annotations: { summary: "More than 25% of jobs are failing", runbook: "docs/OPERATIONS.md#job-failures" }
+      - alert: PdfToolsWorkerLostJobs
+        expr: increase(pdftools_reaped_jobs_total{code="worker_lost"}[15m]) > 0
+        labels: { severity: warn }
+        annotations: { summary: "Jobs were lost because a worker died mid-job (OOM kill? deploy without graceful stop?)", runbook: "docs/OPERATIONS.md#lost-jobs" }
+      - alert: PdfToolsResourceLimitHits
+        expr: increase(pdftools_job_failures_total{code="resource_limit"}[1h]) > 10
+        labels: { severity: warn }
+        annotations: { summary: "Many jobs are hitting memory/CPU limits: abuse, or limits set too low for legitimate files" }
+      - alert: PdfToolsJobsSlow
+        expr: histogram_quantile(0.95, sum by (le) (rate(pdftools_job_duration_seconds_bucket[15m]))) > 120
+        for: 15m
+        labels: { severity: warn }
+        annotations: { summary: "p95 job duration above 2 minutes" }
+
+  - name: pdftools-http
+    rules:
+      - alert: PdfToolsHigh5xxRate
+        expr: |
+          sum(rate(pdftools_http_request_duration_seconds_count{status=~"5.."}[5m]))
+            / clamp_min(sum(rate(pdftools_http_request_duration_seconds_count[5m])), 0.01) > 0.02
+        for: 5m
+        labels: { severity: page }
+        annotations: { summary: "More than 2% of API responses are 5xx", runbook: "docs/OPERATIONS.md#api-errors" }
+      - alert: PdfToolsApiLatencyHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(pdftools_http_request_duration_seconds_bucket{route!="/api/pdf/:tool"}[5m]))) > 2
+        for: 10m
+        labels: { severity: warn }
+        annotations: { summary: "p95 API latency above 2 s (uploads excluded)" }
+      - alert: PdfToolsLoginAttack
+        expr: increase(pdftools_audit_events_total{action="auth.login_failed"}[10m]) > 100
+        labels: { severity: warn }
+        annotations: { summary: "Over 100 failed logins in 10 minutes: credential stuffing?", runbook: "docs/OPERATIONS.md#login-attack" }
+
+  - name: pdftools-capacity
+    rules:
+      - alert: PdfToolsStorageNearlyFull
+        expr: pdftools_storage_limit_bytes > 0 and pdftools_storage_bytes / pdftools_storage_limit_bytes > 0.8
+        for: 10m
+        labels: { severity: warn }
+        annotations: { summary: "Job storage is above 80% of MAX_STORAGE_MB; at 100% new uploads get 503", runbook: "docs/OPERATIONS.md#storage" }
+      - alert: PdfToolsProcessMemoryHigh
+        expr: pdftools_process_resident_memory_bytes > 3e9
+        for: 10m
+        labels: { severity: warn }
+        annotations: { summary: "{{ $labels.job }} on {{ $labels.instance }} is using over 3 GB of RAM" }
+      - alert: PdfToolsEventLoopLag
+        expr: pdftools_nodejs_eventloop_lag_p99_seconds > 0.5
+        for: 5m
+        labels: { severity: warn }
+        annotations: { summary: "Node event loop is lagging (p99 above 0.5 s): the process is CPU-starved or blocked" }

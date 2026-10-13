@@ -1,0 +1,27 @@
+{
+  "name": "pdftools-pro",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "e2e"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build:libs": "npm run build -w @pdftools/shared && npm run build -w @pdftools/pdf-core",
+    "build": "npm run build:libs && npm run build -w @pdftools/api && npm run build -w @pdftools/web",
+    "dev:api": "npm run build:libs && npm run dev -w @pdftools/api",
+    "dev:web": "npm run dev -w @pdftools/web",
+    "test": "npm run build:libs && npm test -w @pdftools/pdf-core && npm test -w @pdftools/api && npm test -w @pdftools/web",
+    "typecheck": "npm run build:libs && npm run typecheck -w @pdftools/api && npm run typecheck -w @pdftools/web",
+    "dev:db": "npm run dev:db -w @pdftools/api",
+    "test:e2e": "npm run build && npm run test -w @pdftools/e2e",
+    "doctor": "npm run doctor -w @pdftools/api",
+    "smoke": "node infrastructure/scripts/smoke.mjs",
+    "verify:images": "E2E_VERIFY_IMAGES=1 npm run test -w @pdftools/e2e -- tests/09-images.spec.ts"
+  }
+}

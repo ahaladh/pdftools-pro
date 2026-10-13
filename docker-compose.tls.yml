@@ -1,0 +1,26 @@
+# TLS for a single-host deployment. Use together with the base file:
+#   docker compose -f docker-compose.yml -f docker-compose.tls.yml up -d
+# Needs DNS for SITE_ADDRESS pointing at this host and ports 80/443 open (443/udp for HTTP/3).
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS (your domain) in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL (Let's Encrypt contact) in .env}
+      # Leave empty in production. For a local trial: TLS_DIRECTIVE="tls internal" (self-signed).
+      TLS_DIRECTIVE: ${TLS_DIRECTIVE:-}
+    volumes:
+      - ./infrastructure/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data      # certificates and ACME account: back this up or you will hit Let's Encrypt rate limits on rebuild
+      - caddy-config:/config
+    depends_on:
+      web: { condition: service_healthy }
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    logging: { driver: json-file, options: { max-size: "50m", max-file: "5" } }
+volumes:
+  caddy-data:
+  caddy-config:

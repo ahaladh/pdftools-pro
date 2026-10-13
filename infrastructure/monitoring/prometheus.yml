@@ -1,0 +1,28 @@
+# Example Prometheus configuration. /metrics is served on the API's and workers' INTERNAL ports (never through nginx).
+# Put the same value as METRICS_TOKEN in /etc/prometheus/pdftools.token (chmod 0640, readable by prometheus).
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - alerts.yml
+
+scrape_configs:
+  - job_name: pdftools-api
+    metrics_path: /metrics
+    authorization: { type: Bearer, credentials_file: /etc/prometheus/pdftools.token }
+    static_configs: [{ targets: ['127.0.0.1:4000'] }]       # one entry per API instance
+  - job_name: pdftools-worker
+    metrics_path: /metrics
+    authorization: { type: Bearer, credentials_file: /etc/prometheus/pdftools.token }
+    static_configs: [{ targets: ['127.0.0.1:9101', '127.0.0.1:9102'] }]   # WORKER_HEALTH_PORT of each worker
+
+  # Black-box probes (needs blackbox_exporter): the public site, and readiness as the load balancer sees it.
+  - job_name: pdftools-public
+    metrics_path: /probe
+    params: { module: [http_2xx] }
+    static_configs: [{ targets: ['https://pdf.example.com/healthz'] }]
+    relabel_configs:
+      - { source_labels: [__address__], target_label: __param_target }
+      - { source_labels: [__param_target], target_label: instance }
+      - { target_label: __address__, replacement: 127.0.0.1:9115 }

@@ -1,0 +1,56 @@
+[Unit]
+Description=PDFTools job worker %i
+After=network-online.target mongod.service redis-server.service pdftools-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pdftools
+Group=pdftools
+WorkingDirectory=/opt/pdftools
+EnvironmentFile=/etc/pdftools/pdftools.env
+# One health/metrics port per instance: worker@1 -> 9101, worker@2 -> 9102 ... (bind to loopback/internal only)
+ExecStart=/bin/sh -c 'WORKER_HEALTH_PORT=$((9100 + %i)) exec /usr/bin/node apps/api/dist/worker.js'
+Restart=on-failure
+RestartSec=3
+# SIGTERM makes the worker stop taking jobs and finish the ones it is running (up to SHUTDOWN_GRACE_SECONDS).
+TimeoutStopSec=60
+KillMode=control-group
+# Share the API's storage directory: results are downloaded through the API.
+StateDirectory=pdftools
+StateDirectoryMode=0700
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+
+# Workers run untrusted-document engines and never need the internet: allow only loopback and your Redis/MongoDB hosts.
+# Add their addresses (or a CIDR) to IPAddressAllow, e.g. `IPAddressAllow=10.0.0.0/24`.
+IPAddressDeny=any
+IPAddressAllow=localhost
+
+LimitNOFILE=65536
+TasksMax=2048
+MemoryMax=8G
+
+[Install]
+WantedBy=multi-user.target

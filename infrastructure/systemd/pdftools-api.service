@@ -1,0 +1,56 @@
+[Unit]
+Description=PDFTools API
+Documentation=file:///opt/pdftools/docs/DEPLOYMENT.md
+After=network-online.target mongod.service redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pdftools
+Group=pdftools
+WorkingDirectory=/opt/pdftools
+EnvironmentFile=/etc/pdftools/pdftools.env
+# Lock-protected, so it is safe even if several instances start together. Fails the start (and keeps the old one running
+# in a rolling restart) if a migration fails.
+ExecStartPre=/usr/bin/node apps/api/dist/migrate.js up
+ExecStart=/usr/bin/node apps/api/dist/server.js
+Restart=on-failure
+RestartSec=3
+# SIGTERM -> drain (SHUTDOWN_DRAIN_SECONDS) + finish in-flight work (SHUTDOWN_GRACE_SECONDS); keep this above their sum.
+TimeoutStopSec=45
+KillMode=control-group
+StateDirectory=pdftools
+StateDirectoryMode=0700
+
+# --- sandbox ---
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+# NOT MemoryDenyWriteExecute: V8's JIT needs writable+executable memory.
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+CapabilityBoundingSet=
+AmbientCapabilities=
+UMask=0077
+
+# --- resource ceilings for the whole service (jobs run as children under their own prlimit caps) ---
+LimitNOFILE=65536
+TasksMax=1024
+MemoryMax=4G
+
+[Install]
+WantedBy=multi-user.target

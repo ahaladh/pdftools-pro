@@ -1,0 +1,18 @@
+[Unit]
+Description=PDFTools database backup
+After=mongod.service
+
+[Service]
+Type=oneshot
+User=pdftools
+Group=pdftools
+EnvironmentFile=/etc/pdftools/pdftools.env
+Environment=BACKUP_DIR=/var/backups/pdftools
+Environment=RETENTION_DAYS=14
+ExecStart=/opt/pdftools/infrastructure/scripts/backup.sh
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/backups/pdftools
+UMask=0077

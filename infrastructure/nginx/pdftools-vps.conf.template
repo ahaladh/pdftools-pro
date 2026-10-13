@@ -1,0 +1,76 @@
+# VPS / bare-metal template with TLS. Render it with ./render.sh (placeholders are __LIKE_THIS__), drop the result in
+# /etc/nginx/conf.d/, install snippets/ into /etc/nginx/snippets/, then `nginx -t && systemctl reload nginx`.
+include "__SNIPPETS__/pdftools-log-format.conf";
+upstream pdftools_api { server __API_ADDR__; keepalive 32; }
+limit_req_zone $binary_remote_addr zone=pdf_upload:10m rate=30r/m;
+limit_req_zone $binary_remote_addr zone=pdf_auth:10m rate=30r/m;
+limit_req_zone $binary_remote_addr zone=pdf_api:10m rate=600r/m;
+limit_req_status 429;
+
+# Plain HTTP: ACME challenges, everything else redirects to HTTPS.
+server {
+  listen __HTTP_PORT__;
+  server_name __DOMAIN__;
+  server_tokens off;
+  location /.well-known/acme-challenge/ { root /var/www/certbot; }
+  location / { return 301 https://$host$request_uri; }
+}
+
+server {
+  listen __HTTPS_PORT__ ssl;
+  http2 on;
+  server_name __DOMAIN__;
+  server_tokens off;
+  root "__WEB_ROOT__";
+  index index.html;
+  access_log "__ACCESS_LOG__" pdftools_json;
+  client_max_body_size 1m;
+  client_body_timeout 120s;
+
+  ssl_certificate     "__CERT__";
+  ssl_certificate_key "__KEY__";
+  ssl_protocols TLSv1.2 TLSv1.3;
+  ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
+  ssl_prefer_server_ciphers off;
+  ssl_session_cache shared:SSL:10m;
+  ssl_session_timeout 1d;
+  ssl_session_tickets off;
+  # With a real certificate also enable OCSP stapling:
+  #   ssl_stapling on; ssl_stapling_verify on; ssl_trusted_certificate /etc/letsencrypt/live/__DOMAIN__/chain.pem; resolver 1.1.1.1 valid=300s;
+  # Browser headers (incl. HSTS) are added only in the static locations below. Proxied /api responses already carry the
+  # API's own helmet headers, and adding them here too would duplicate every one of them.
+
+  gzip on; gzip_vary on; gzip_min_length 1024; gzip_comp_level 5;
+  gzip_types text/css application/javascript application/json image/svg+xml text/plain application/xml;
+
+
+  location /api/pdf/ {
+    limit_req zone=pdf_upload burst=20 nodelay;
+    client_max_body_size __MAX_UPLOAD__;
+    proxy_request_buffering off;
+    include "__SNIPPETS__/pdftools-api-proxy.conf";
+  }
+  location /api/auth/ {
+    limit_req zone=pdf_auth burst=10 nodelay;
+    include "__SNIPPETS__/pdftools-api-proxy.conf";
+  }
+  location /api/ {
+    limit_req zone=pdf_api burst=200 nodelay;
+    include "__SNIPPETS__/pdftools-api-proxy.conf";
+  }
+  location = /healthz { access_log off; proxy_pass http://pdftools_api/health; proxy_http_version 1.1; proxy_set_header Connection ""; }
+
+  location /assets/ {
+    include "__SNIPPETS__/pdftools-security-headers.conf";
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+    add_header Cache-Control "public, max-age=31536000, immutable" always;
+    try_files $uri =404;
+  }
+  location ~ /\. { deny all; }
+  location / {
+    include "__SNIPPETS__/pdftools-security-headers.conf";
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+    add_header Cache-Control "no-cache" always;
+    try_files $uri $uri/index.html /app-shell.html;   # prerendered page if one exists, else the pristine SPA shell
+  }
+}

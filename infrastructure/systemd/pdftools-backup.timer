@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily PDFTools database backup
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+RandomizedDelaySec=15min
+# If the machine was off at 02:30, run the backup as soon as it is back.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

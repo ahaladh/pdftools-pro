@@ -1,0 +1,45 @@
+# TLS terminator for the docker-compose deployment (see docker-compose.tls.yml). Caddy obtains and renews Let's Encrypt
+# certificates automatically, redirects HTTP to HTTPS and speaks HTTP/2 and HTTP/3.
+# SITE_ADDRESS is your domain (e.g. pdf.example.com). TLS_DIRECTIVE="tls internal" is for local testing ONLY (self-signed).
+{
+	email {$ACME_EMAIL} # Let's Encrypt contact: expiry and problem notices
+	admin off
+	# Defaults are the standard ports; override only for local testing without root.
+	http_port {$HTTP_PORT:80}
+	servers {
+		protocols h1 h2 h3
+	}
+}
+
+{$SITE_ADDRESS:localhost} {
+	{$TLS_DIRECTIVE:}
+
+	# Compress static text but not the API (responses can carry tokens: BREACH) and not PDFs/zips.
+	@compressible not path /api/*
+	encode @compressible zstd gzip
+
+	# One HSTS policy for the whole site. the deferred form below REPLACES any value an upstream already set, so it is never duplicated.
+	# ">" defers the change until the upstream response is written, so it REPLACES the API's own HSTS instead of adding a second one.
+	header >Strict-Transport-Security "max-age=63072000; includeSubDomains"
+	header >-Server
+
+	# Large uploads stream through; the real per-plan limits are enforced by the API. Keep >= nginx's 1g for /api/pdf/.
+	request_body {
+		max_size 1GB
+	}
+
+	reverse_proxy {$UPSTREAM:web:80} {
+		# X-Forwarded-For: Caddy's default is already the safe one. Because no trusted_proxies are configured, it DISCARDS any
+		# client-supplied value and sets the real peer address; nginx (inside the compose network) trusts that from private addresses.
+		transport http {
+			read_timeout 330s
+			write_timeout 330s
+			dial_timeout 5s
+		}
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

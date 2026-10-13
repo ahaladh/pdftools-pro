@@ -1,0 +1,100 @@
+# UNVERIFIED in the authoring environment (no Docker daemon access).
+# Topology: web (nginx) -> api -> redis/mongo, plus one or more `worker` containers sharing the api's storage volume.
+# Scale processing with `docker compose up -d --scale worker=3`; the API itself only enqueues.
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "50m", max-file: "5" }   # logs are JSON; rotate them so they can never fill the disk
+
+services:
+  redis:
+    logging: *logging
+    image: redis:7
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]  # a queue must never evict jobs
+    volumes: ["redis-data:/data"]
+    healthcheck: { test: ["CMD", "redis-cli", "ping"], interval: 10s, timeout: 3s, retries: 5 }
+  mongo:
+    logging: *logging
+    image: mongo:7
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-pdftools}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?set MONGO_PASSWORD in .env}
+    volumes: ["mongo-data:/data/db"]
+    # No published ports: reachable only from the api container on the compose network.
+    healthcheck: { test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"], interval: 15s, timeout: 5s, retries: 5 }
+  api:
+    logging: *logging
+    build: { context: ., dockerfile: infrastructure/docker/Dockerfile.api, args: { APP_VERSION: "${APP_VERSION:-dev}" } }
+    env_file: .env
+    stop_grace_period: 45s   # SHUTDOWN_DRAIN_SECONDS (5) + SHUTDOWN_GRACE_SECONDS (30) + margin
+    environment:
+      NODE_ENV: production
+      TRUST_PROXY: "1"
+      CORS_ORIGINS: ${SITE_URL:-http://localhost}
+      PUBLIC_URL: ${SITE_URL:-http://localhost}
+      MONGODB_URI: mongodb://${MONGO_USER:-pdftools}:${MONGO_PASSWORD}@mongo:27017/pdftools?authSource=admin
+      QUEUE_DRIVER: bullmq
+      REDIS_URL: redis://redis:6379
+    volumes: ["pdf-data:/data"]
+    depends_on:
+      mongo: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    # Defence in depth for untrusted-document processing:
+    read_only: true
+    tmpfs: ["/tmp:size=256m"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 256
+    mem_limit: 2g
+    cpus: 2
+    restart: unless-stopped
+  worker:
+    logging: *logging
+    build: { context: ., dockerfile: infrastructure/docker/Dockerfile.api, args: { APP_VERSION: "${APP_VERSION:-dev}" } }
+    stop_grace_period: 45s   # lets running jobs finish after SIGTERM
+    command: ["node", "apps/api/dist/worker.js"]
+    # Workers expose /health, /ready and /metrics on an internal-only port (not published to the host).
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:9100/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 3s
+      start_period: 20s
+      retries: 3
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      MONGODB_URI: mongodb://${MONGO_USER:-pdftools}:${MONGO_PASSWORD}@mongo:27017/pdftools?authSource=admin
+      QUEUE_DRIVER: bullmq
+      REDIS_URL: redis://redis:6379
+      WORKER_HEALTH_PORT: "9100"
+    volumes: ["pdf-data:/data"]   # MUST be the same volume as the api: results are downloaded through the api
+    read_only: true
+    tmpfs: ["/tmp:size=512m"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 512
+    mem_limit: 6g
+    cpus: 2
+    # The container cannot reach the internet from untrusted-document code if you also attach it only to internal networks;
+    # see docs/DEPLOYMENT.md ("Network isolation").
+    depends_on:
+      mongo: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    restart: unless-stopped
+  web:
+    logging: *logging
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile.web
+      args: { VITE_BRAND_NAME: "${VITE_BRAND_NAME:-PDFTools Pro}", SITE_URL: "${SITE_URL:?set SITE_URL (public https origin) in .env}" }
+    # Not published publicly: a TLS terminator in front is required. With docker-compose.tls.yml that is Caddy; otherwise
+    # point your own proxy/load balancer at 127.0.0.1:8080.
+    ports: ["127.0.0.1:8080:80"]
+    depends_on:
+      api: { condition: service_healthy }
+    restart: unless-stopped
+volumes:
+  pdf-data:
+  mongo-data:
+  redis-data:

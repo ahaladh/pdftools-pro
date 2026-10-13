@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>http://localhost:4173/</loc></url>
+  <url><loc>http://localhost:4173/tools</loc></url>
+  <url><loc>http://localhost:4173/pricing</loc></url>
+  <url><loc>http://localhost:4173/privacy</loc></url>
+  <url><loc>http://localhost:4173/terms</loc></url>
+  <url><loc>http://localhost:4173/merge</loc></url>
+  <url><loc>http://localhost:4173/split</loc></url>
+  <url><loc>http://localhost:4173/compress</loc></url>
+  <url><loc>http://localhost:4173/rotate</loc></url>
+  <url><loc>http://localhost:4173/organize</loc></url>
+  <url><loc>http://localhost:4173/extract-pages</loc></url>
+  <url><loc>http://localhost:4173/page-numbers</loc></url>
+  <url><loc>http://localhost:4173/watermark</loc></url>
+  <url><loc>http://localhost:4173/images-to-pdf</loc></url>
+  <url><loc>http://localhost:4173/pdf-to-images</loc></url>
+  <url><loc>http://localhost:4173/office-to-pdf</loc></url>
+  <url><loc>http://localhost:4173/protect</loc></url>
+  <url><loc>http://localhost:4173/unlock</loc></url>
+  <url><loc>http://localhost:4173/pdf-to-text</loc></url>
+  <url><loc>http://localhost:4173/pdf-to-html</loc></url>
+  <url><loc>http://localhost:4173/extract-images</loc></url>
+  <url><loc>http://localhost:4173/crop</loc></url>
+  <url><loc>http://localhost:4173/resize</loc></url>
+  <url><loc>http://localhost:4173/add-blank-pages</loc></url>
+  <url><loc>http://localhost:4173/flatten</loc></url>
+  <url><loc>http://localhost:4173/compare</loc></url>
+  <url><loc>http://localhost:4173/repair</loc></url>
+  <url><loc>http://localhost:4173/edit</loc></url>
+  <url><loc>http://localhost:4173/sign</loc></url>
+  <url><loc>http://localhost:4173/redact</loc></url>
+</urlset>

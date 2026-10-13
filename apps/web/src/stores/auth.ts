@@ -1,0 +1,41 @@
+import { create } from 'zustand';
+import type { UserView } from '@pdftools/shared';
+import { api } from '@/lib/api';
+import { hasSessionHint, refreshSession, RefreshError, setSessionHint, setToken, type AuthPayload } from '@/lib/session';
+
+interface AuthState {
+  /** 'unavailable': we believe a session exists but the server could not be reached. */
+  status: 'loading' | 'anonymous' | 'authenticated' | 'unavailable';
+  user: UserView | null;
+  init: () => Promise<void>;
+  accept: (p: AuthPayload) => void;
+  login: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string, name: string) => Promise<void>;
+  logout: () => Promise<void>;
+  setUser: (u: UserView) => void;
+  clear: () => void;
+}
+
+export const useAuth = create<AuthState>((set, get) => ({
+  status: 'loading',
+  user: null,
+  /** Restore a session from the refresh cookie (only attempted if we previously signed in). */
+  async init() {
+    if (!hasSessionHint()) return set({ status: 'anonymous' });
+    set({ status: 'loading' });
+    try { get().accept(await refreshSession()); }
+    catch (e) {
+      // Keep the sign-in hint on outages so a reload retries instead of silently signing the user out.
+      if (e instanceof RefreshError && e.kind === 'invalid') get().clear(); else set({ status: 'unavailable' });
+    }
+  },
+  accept(p) { setToken(p.accessToken); setSessionHint(true); set({ status: 'authenticated', user: p.user }); },
+  async login(email, password) { get().accept(await api.auth.login({ email, password })); },
+  async register(email, password, name) { get().accept(await api.auth.register({ email, password, name })); },
+  async logout() { await api.auth.logout().catch(() => undefined); get().clear(); },
+  setUser(user) { set({ user }); },
+  clear() { setToken(null); setSessionHint(false); set({ status: 'anonymous', user: null }); },
+}));
+
+// A refresh failure anywhere signs the user out of the UI.
+if (typeof window !== 'undefined') window.addEventListener('pt:signed-out', () => useAuth.getState().clear());

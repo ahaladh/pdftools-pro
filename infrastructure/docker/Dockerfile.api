@@ -1,0 +1,50 @@
+# API and worker image (same image, different command). Stages: manifests -> build (dev deps, compile) ->
+# deps (production deps only) -> runtime (minimal, non-root). Verified without a Docker daemon by
+# infrastructure/scripts/sim-docker-build.mjs, which executes the COPY/npm steps below in a clean directory.
+ARG NODE_VERSION=22
+
+FROM node:${NODE_VERSION}-bookworm-slim AS manifests
+WORKDIR /app
+COPY package.json package-lock.json tsconfig.base.json ./
+COPY packages/shared/package.json packages/shared/
+COPY packages/pdf-core/package.json packages/pdf-core/
+COPY apps/api/package.json apps/api/
+
+FROM manifests AS build
+# devDependencies include test tooling whose install scripts download a MongoDB binary / compile Redis: never needed in an image.
+ENV MONGOMS_DISABLE_POSTINSTALL=1 REDISMS_DISABLE_POSTINSTALL=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+RUN npm ci --workspace @pdftools/shared --workspace @pdftools/pdf-core --workspace @pdftools/api --include-workspace-root
+COPY packages/shared packages/shared
+COPY packages/pdf-core packages/pdf-core
+COPY apps/api apps/api
+RUN npm run build -w @pdftools/shared && npm run build -w @pdftools/pdf-core && npm run build -w @pdftools/api
+
+FROM manifests AS deps
+ENV MONGOMS_DISABLE_POSTINSTALL=1 REDISMS_DISABLE_POSTINSTALL=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+RUN npm ci --omit=dev --workspace @pdftools/shared --workspace @pdftools/pdf-core --workspace @pdftools/api --include-workspace-root
+
+FROM node:${NODE_VERSION}-bookworm-slim AS runtime
+ARG APP_VERSION=dev
+# PDF engines: Ghostscript (compress/repair), Poppler (render/extract), ImageMagick (redaction burn-in), LibreOffice (Office
+# to PDF), prlimit (util-linux; kernel resource limits for every job), tini (proper PID 1: signal forwarding, zombie reaping).
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends tini ghostscript poppler-utils imagemagick util-linux \
+    libreoffice-writer libreoffice-calc libreoffice-impress fonts-liberation ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+ENV NODE_ENV=production STORAGE_DIR=/data PORT=4000 APP_VERSION=${APP_VERSION}
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=build /app/package.json ./package.json
+COPY --from=build /app/packages/shared/package.json ./packages/shared/package.json
+COPY --from=build /app/packages/shared/dist ./packages/shared/dist
+COPY --from=build /app/packages/pdf-core/package.json ./packages/pdf-core/package.json
+COPY --from=build /app/packages/pdf-core/dist ./packages/pdf-core/dist
+COPY --from=build /app/apps/api/package.json ./apps/api/package.json
+COPY --from=build /app/apps/api/dist ./apps/api/dist
+RUN mkdir -p /data && chown node:node /data
+USER node
+EXPOSE 4000
+STOPSIGNAL SIGTERM
+HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 CMD node -e "fetch('http://127.0.0.1:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["node", "apps/api/dist/server.js"]

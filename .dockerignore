@@ -1,0 +1,18 @@
+# Keep the build context small and free of local state and secrets.
+.git
+.github
+**/node_modules
+**/dist
+data
+coverage
+e2e
+**/test-results
+**/*.log
+.env
+.env.*
+!.env.example
+docs
+**/*.test.ts
+**/*.test.tsx
+apps/web/public/sitemap.xml
+apps/web/public/robots.txt
