@@ -73,10 +73,18 @@ export interface Built {
  * Convert editor state to API options. Image indices are re-packed so that only images actually
  * used are uploaded, and dedupe identical File objects.
  */
-export function buildPayload(mode: Mode, items: Item[], imageFiles: File[], dpi: number): Built {
+export interface SearchSpec { text: string; caseSensitive: boolean }
+
+/** One search term per non-empty line, trimmed and de-duplicated (the API caps the list at 50). */
+export function searchTerms(text: string): string[] {
+  return [...new Set(text.split('\n').map((l) => l.trim()).filter(Boolean))];
+}
+
+export function buildPayload(mode: Mode, items: Item[], imageFiles: File[], dpi: number, search: SearchSpec = { text: '', caseSensitive: false }): Built {
   if (mode === 'redact') {
     const redactions = items.filter(isRedaction).map(({ id: _id, ...r }) => r);
-    return { options: { redactions, dpi }, images: [], count: redactions.length };
+    const terms = searchTerms(search.text);
+    return { options: { redactions, search: terms, caseSensitive: search.caseSensitive, dpi }, images: [], count: redactions.length + terms.length };
   }
   const used: number[] = [];
   const annotations = items.filter((i): i is A => !isRedaction(i)).map(({ id: _id, ...a }) => {

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { annotationsOptions, redactOptions } from './annotations.js';
+import { annotationsOptions, redactOptions, editContentOptions } from './annotations.js';
 
 export type ToolCategory = 'organize' | 'edit' | 'convert' | 'compress' | 'security' | 'more';
 export type ToolStatus = 'available' | 'planned';
@@ -92,6 +92,9 @@ export const optionSchemas = {
   }),
   'pdf-to-text': z.object({}).strict(),
   'pdf-to-html': z.object({}).strict(),
+  'pdf-to-word': z.object({}).strict(),
+  'pdf-to-excel': z.object({}).strict(),
+  'pdf-to-powerpoint': z.object({}).strict(),
   'extract-images': z.object({}).strict(),
   crop: z.object({
     top: z.coerce.number().min(0).max(90).default(0),
@@ -115,6 +118,7 @@ export const optionSchemas = {
   edit: annotationsOptions,
   sign: annotationsOptions,
   redact: redactOptions,
+  'edit-content': editContentOptions,
 } as const;
 
 export type ToolId = keyof typeof optionSchemas;
@@ -209,6 +213,24 @@ export const TOOLS: ToolDefinition[] = [
     related: ['images-to-pdf', 'compress', 'split'],
   },
   {
+    id: 'pdf-to-word', name: 'PDF to Word', category: 'convert', status: 'available', popular: true,
+    short: 'Convert a PDF to an editable DOCX.', description: 'Converts the text and graphics of a text-based PDF into a Word (DOCX) file with LibreOffice. Text is positioned to match the PDF, so it is editable but not always reflowable. Scanned PDFs are not converted to text because OCR is not available yet.',
+    accept: ['pdf'], multiple: false, minFiles: 1, options: optionSchemas['pdf-to-word'],
+    faq: [{ q: 'Will the Word file look exactly like the PDF?', a: 'Not always. PDFs store positioned text, not paragraphs, so the result is built from positioned frames and may need tidying. Fonts that are not installed on the server are substituted.' }, { q: 'Does it work on scanned PDFs?', a: 'No. A scan is a picture; without OCR there is no text to put in the document. We tell you when no text layer is found.' }], related: ['pdf-to-excel', 'pdf-to-powerpoint', 'pdf-to-text'],
+  },
+  {
+    id: 'pdf-to-excel', name: 'PDF to Excel', category: 'convert', status: 'available',
+    short: 'Extract tables from a PDF into XLSX.', description: 'Reads the text layer and splits each line into columns wherever there is a clear gap, writing one worksheet per page. Plain numbers become numeric cells; everything else stays text. Best for text-based tables; scanned PDFs are not supported.',
+    accept: ['pdf'], multiple: false, minFiles: 1, options: optionSchemas['pdf-to-excel'],
+    faq: [{ q: 'How accurate is the table detection?', a: 'It is a heuristic based on gaps in the text. Clean text tables work well; merged cells, tables without clear gaps and multi-line cells can be split wrongly, so check the numbers.' }, { q: 'Why is a value kept as text?', a: 'Only plain numbers are converted. IDs with leading zeros, dates, phone numbers and currency strings are kept as written so nothing is silently changed.' }], related: ['pdf-to-word', 'pdf-to-text', 'pdf-to-html'],
+  },
+  {
+    id: 'pdf-to-powerpoint', name: 'PDF to PowerPoint', category: 'convert', status: 'available',
+    short: 'Convert a PDF to a PPTX deck.', description: 'Imports each PDF page as one slide with LibreOffice, keeping text and graphics as separate objects where possible. Complex layouts and fonts may differ from the original.',
+    accept: ['pdf'], multiple: false, minFiles: 1, options: optionSchemas['pdf-to-powerpoint'],
+    faq: [{ q: 'Is every slide editable?', a: 'Text-based pages import as editable text and shapes. Scanned pages stay as pictures.' }], related: ['pdf-to-word', 'pdf-to-images', 'pdf-to-excel'],
+  },
+  {
     id: 'office-to-pdf', name: 'Word, Excel, PowerPoint to PDF', category: 'convert', status: 'available', popular: true,
     short: 'Convert Office documents to PDF.', description: 'Converts DOC/DOCX, XLS/XLSX and PPT/PPTX to PDF with LibreOffice. Layout fidelity depends on fonts and features used; complex documents may differ from Microsoft Office rendering.',
     accept: ['office'], multiple: false, minFiles: 1, options: optionSchemas['office-to-pdf'],
@@ -281,10 +303,16 @@ export const TOOLS: ToolDefinition[] = [
     faq: [], related: ['compress', 'merge', 'pdf-to-text'],
   },
   {
+    id: 'edit-content', name: 'Edit PDF text and images', category: 'edit', status: 'available', popular: true,
+    short: 'Change the text and images already in a PDF.', description: 'Click text that is already in the PDF and retype it, or delete or replace an existing image. The original characters are removed from the page content and the new text is placed in the same spot, so nothing is just painted over. Works on text-based PDFs; scanned pages are pictures and cannot be edited.',
+    accept: ['pdf', 'jpg', 'png'], multiple: true, minFiles: 1, options: optionSchemas['edit-content'],
+    faq: [{ q: 'Is the old text really gone?', a: 'Yes. We remove the exact characters from the page content and write the new text in their place; we do not draw a white box over them. The old words will not appear when someone selects or extracts text from the result.' }, { q: 'Why does my new text look slightly different?', a: 'The original font is usually embedded as a partial subset that cannot be reused for new letters. New text uses Helvetica, Times or Courier matched to the original weight and style at the same size. Layout does not reflow: long replacements simply run on.' }, { q: 'Which text can I edit?', a: 'Text in normal fonts on the page itself. Text inside embedded forms, Type 3 fonts, vertical or CJK character maps, scanned images and text drawn as shapes cannot be edited and we tell you instead of guessing.' }, { q: 'Can I edit images?', a: 'You can delete an image or replace it with a JPG or PNG that is fitted into the same frame. Images drawn inline inside the page content or inside embedded forms are not supported.' }], related: ['edit', 'redact', 'sign'],
+  },
+  {
     id: 'edit', name: 'Edit PDF', category: 'edit', status: 'available', popular: true,
-    short: 'Add text, shapes, highlights, drawings and images.', description: 'Add new content on top of your PDF: text, rectangles, ellipses, lines, highlights, freehand drawing and images. This adds new content; it does not edit the existing text inside the PDF.',
+    short: 'Add text, shapes, highlights, drawings and images.', description: 'Add new content on top of your PDF: text, rectangles, ellipses, lines, highlights, freehand drawing and images. To change text or images that are already in the PDF, use Edit PDF text and images.',
     accept: ['pdf', 'jpg', 'png'], multiple: true, minFiles: 1, options: optionSchemas['edit'],
-    faq: [{ q: 'Can I edit the existing text in my PDF?', a: 'Not yet. This editor adds new text, shapes and images on top of pages. Changing text that is already part of the document is not supported.' }, { q: 'Does highlight select text?', a: 'No. The highlight tool draws a translucent colour box. It is not tied to the underlying text.' }, { q: 'What fonts are available?', a: 'Helvetica, Times and Courier (standard PDF fonts), Latin characters only.' }], related: ['sign', 'redact', 'watermark'],
+    faq: [{ q: 'Can I edit the existing text in my PDF?', a: 'Use the Edit PDF text and images tool for that. This editor adds new text, shapes and images on top of pages and leaves the existing content as it is.' }, { q: 'Does highlight select text?', a: 'No. The highlight tool draws a translucent colour box. It is not tied to the underlying text.' }, { q: 'What fonts are available?', a: 'Helvetica, Times and Courier (standard PDF fonts), Latin characters only.' }], related: ['sign', 'redact', 'watermark'],
   },
   {
     id: 'sign', name: 'Sign PDF', category: 'more', status: 'available',
@@ -294,9 +322,9 @@ export const TOOLS: ToolDefinition[] = [
   },
   {
     id: 'redact', name: 'Redact PDF', category: 'security', status: 'available',
-    short: 'Permanently remove sensitive areas.', description: 'Draw boxes over sensitive content. Pages with redactions are re-rendered as images with the boxes burned in, so the covered text and graphics are removed from the file, not just hidden. Redacted pages lose their selectable text.',
+    short: 'Permanently remove sensitive areas.', description: 'Draw boxes over sensitive content, or type words and phrases to find and cover everywhere they appear in the text layer. Pages with redactions are re-rendered as images with the boxes burned in, so the covered text and graphics are removed from the file, not just hidden. Redacted pages lose their selectable text.',
     accept: ['pdf', 'jpg', 'png'], multiple: true, minFiles: 1, options: optionSchemas['redact'],
-    faq: [{ q: 'Is the hidden content really gone?', a: 'Yes. Redacted pages are rasterized with the black boxes burned into the pixels and the original page content is discarded, so the text cannot be recovered from the file. Pages you did not redact are kept as they were.' }, { q: 'Why is text on redacted pages no longer selectable?', a: 'Because those pages become images. OCR is not available yet to restore a text layer.' }, { q: 'What about metadata?', a: 'The output is a new document: original metadata, bookmarks and attachments are not carried over.' }], related: ['protect', 'flatten', 'compress'],
+    faq: [{ q: 'Is the hidden content really gone?', a: 'Yes. Redacted pages are rasterized with the black boxes burned into the pixels and the original page content is discarded, so the text cannot be recovered from the file. Pages you did not redact are kept as they were.' }, { q: 'Why is text on redacted pages no longer selectable?', a: 'Because those pages become images. OCR is not available yet to restore a text layer.' }, { q: 'How does find-and-redact work?', a: 'We search the text layer of your PDF for each word or phrase (plain text, not patterns) and cover every match, including partial matches inside a longer word. Text that is part of a scanned image or drawn as graphics has no text layer and is not found, so draw boxes over those areas. If nothing matches we stop with an error instead of returning an unredacted copy.' }, { q: 'What about metadata?', a: 'The output is a new document: original metadata, bookmarks and attachments are not carried over.' }], related: ['protect', 'flatten', 'compress'],
   },
 ];
 
@@ -305,10 +333,7 @@ const planned = (id: string, name: string, category: ToolCategory, short: string
   id, name, category, short, description: short, status: 'planned', accept: ['pdf'], multiple: false, minFiles: 1, faq: [], related: [],
 });
 export const PLANNED_TOOLS: ToolDefinition[] = [
-  planned('pdf-to-word', 'PDF to Word', 'convert', 'Convert PDF to editable DOCX.'),
   planned('ocr', 'OCR PDF', 'more', 'Make scanned PDFs searchable (needs Tesseract).'),
-  planned('pdf-to-excel', 'PDF to Excel', 'convert', 'Extract tables to XLSX.'),
-  planned('pdf-to-powerpoint', 'PDF to PowerPoint', 'convert', 'Convert PDF to PPTX.'),
   planned('pdf-to-pdfa', 'PDF to PDF/A', 'convert', 'Archival PDF (needs a validator before we can claim compliance).'),
   planned('fill-forms', 'Fill PDF forms', 'edit', 'Fill AcroForm fields.'),
 ];

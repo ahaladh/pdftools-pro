@@ -15,7 +15,7 @@ import { BRAND } from '@/lib/utils';
 const FAQ = [
   { q: 'Are my files private?', a: 'Files are uploaded over an encrypted connection to private storage that only your browser session can access. Originals are deleted as soon as processing finishes and results are deleted automatically after the retention period shown on each tool page. You can also delete a result immediately.' },
   { q: 'Do I need an account?', a: 'No. Basic tools work without signing up, within the daily and file-size limits shown on each tool page. An account adds a higher limit and job history; some premium tools need a paid plan.' },
-  { q: 'Which tools actually work today?', a: 'Merge, split, extract, organize, rotate, crop, resize, compress, repair, page numbers, watermark, add text/shapes/images, visual signature, true redaction, password protect/unlock, Office-to-PDF, PDF to text/HTML/images, image extraction and text comparison. Tools marked “Soon” (OCR, PDF to Word/Excel/PowerPoint, form filling) are not available yet.' },
+  { q: 'Which tools actually work today?', a: 'Merge, split, extract, organize, rotate, crop, resize, compress, repair, page numbers, watermark, add text/shapes/images, edit existing text and images, visual signature, true redaction (drawn areas or find-and-redact text), password protect/unlock, Office-to-PDF, PDF to Word/Excel/PowerPoint/text/HTML/images, image extraction and text comparison. Tools marked “Soon” (OCR, form filling, PDF/A) are not available yet.' },
   { q: 'Will compression always make my file smaller?', a: 'No. Results depend on the content. If a file cannot be reduced, we return the original unchanged and tell you.' },
 ];
 

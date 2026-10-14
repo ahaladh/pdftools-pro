@@ -75,25 +75,30 @@ export class JobRunner {
       if (!(e instanceof ToolError)) this.log.error({ jobId: id, tool: job.tool, err: e }, 'job crashed');
       else this.log.warn({ jobId: id, tool: job.tool, code: e.code, detail: (e as { detail?: string }).detail }, 'job failed');
       outcome = cancelled ? { state: 'cancelled', error: { code: 'cancelled', message: 'Job was cancelled' } } : { state: 'failed', error: err };
+    }
+    // The job stays in `running` (and keeps its heartbeat) until cleanup AND the outcome are done: graceful shutdown
+    // waits on `running`, so dropping the entry earlier lets the process exit with files left behind and the job
+    // still marked as processing.
+    try {
+      // Source documents and scratch files are deleted BEFORE the outcome is published, so a client that sees a
+      // terminal state can rely on the originals being gone. Passwords are scrubbed in the same step.
+      await rm(join(job.dir, 'in'), { recursive: true, force: true });
+      await rm(workDir, { recursive: true, force: true });
+      const done = await this.store.transition(id, ['processing'], { ...outcome, options: scrub(job.options) as JobRecord['options'] });
+      if (done && this.metrics) {
+        this.metrics.jobsTotal.inc({ tool: job.tool, outcome: String(outcome.state) });
+        this.metrics.jobDuration.observe({ tool: job.tool }, (Date.now() - startedAt) / 1000);
+        if (outcome.state === 'failed') this.metrics.jobFailures.inc({ code: outcome.error?.code ?? 'unknown' });
+      }
+      // If another actor (e.g. the reaper) already finalised the job, secrets must still not outlive processing.
+      if (!done) await this.store.update(id, { options: scrub(job.options) as JobRecord['options'] }).catch(() => undefined);
+      if (done && outcome.state === 'completed') {
+        await this.usage.increment(job.usageKeys, job.tool).catch((e) => this.log.error({ err: e }, 'usage increment failed'));
+        this.log.info({ jobId: id, tool: job.tool, bytes: (outcome.result as { bytes: number }).bytes }, 'job completed');
+      }
     } finally {
       clearInterval(beat);
       this.running.delete(id);
-    }
-    // Source documents and scratch files are deleted BEFORE the outcome is published, so a client that sees a
-    // terminal state can rely on the originals being gone. Passwords are scrubbed in the same step.
-    await rm(join(job.dir, 'in'), { recursive: true, force: true });
-    await rm(workDir, { recursive: true, force: true });
-    const done = await this.store.transition(id, ['processing'], { ...outcome, options: scrub(job.options) as JobRecord['options'] });
-    if (done && this.metrics) {
-      this.metrics.jobsTotal.inc({ tool: job.tool, outcome: String(outcome.state) });
-      this.metrics.jobDuration.observe({ tool: job.tool }, (Date.now() - startedAt) / 1000);
-      if (outcome.state === 'failed') this.metrics.jobFailures.inc({ code: outcome.error?.code ?? 'unknown' });
-    }
-    // If another actor (e.g. the reaper) already finalised the job, secrets must still not outlive processing.
-    if (!done) await this.store.update(id, { options: scrub(job.options) as JobRecord['options'] }).catch(() => undefined);
-    if (done && outcome.state === 'completed') {
-      await this.usage.increment(job.usageKeys, job.tool).catch((e) => this.log.error({ err: e }, 'usage increment failed'));
-      this.log.info({ jobId: id, tool: job.tool, bytes: (outcome.result as { bytes: number }).bytes }, 'job completed');
     }
   }
 }

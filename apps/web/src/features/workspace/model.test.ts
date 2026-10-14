@@ -46,3 +46,14 @@ describe('workspace model', () => {
     expect(JSON.stringify(rp.options)).not.toContain('"id"');
   });
 });
+
+describe('redact payload with text search', () => {
+  it('sends trimmed, de-duplicated terms and counts them as work to do', () => {
+    const b = buildPayload('redact', [], [], 150, { text: ' Jane Doe \n\nJane Doe\n555-0100\n', caseSensitive: true });
+    expect(b.options).toEqual({ redactions: [], search: ['Jane Doe', '555-0100'], caseSensitive: true, dpi: 150 });
+    expect(b.count).toBe(2);
+  });
+  it('is empty (nothing to submit) with no boxes and no terms', () => {
+    expect(buildPayload('redact', [], [], 150).count).toBe(0);
+  });
+});

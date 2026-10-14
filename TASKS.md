@@ -5,7 +5,7 @@
 
 ## Next
 - [x] Phase 5 (done, see docs/FEATURES.md): workspace (view/edit/sign/redact), Office→PDF, protect/unlock, text/HTML/image extraction, crop/resize/blank pages, flatten forms, compare, repair
-- [ ] Phase 5 leftovers: OCR (needs Tesseract), form filling UI, PDF→Word/Excel/PPT, PDF/A (needs validator), editing existing text, search-and-redact, keyboard-accessible drawing, Playwright e2e for the workspace, standalone viewer route
+- [ ] Phase 5 leftovers: OCR (needs Tesseract), form filling UI, PDF/A (needs validator), editing text inside embedded forms / Type 3 / CJK fonts, reflowing paragraphs, keyboard-accessible drawing, Playwright e2e for the workspace, standalone viewer route
 - [x] Phase 6 (done, see docs/FEATURES.md): MongoDB accounts, JWT + rotating refresh, dashboard, usage/quotas, plans/entitlements, Stripe, admin panel + audit log
 - [ ] Phase 6 leftovers: email verification, 2FA, teams/shared billing, batch entitlement, Razorpay, verify Stripe against test mode, Playwright e2e for auth/admin flows
 - [x] Phase 7 (done, see docs/SECURITY.md): isolation + limits, BullMQ worker, heartbeat recovery, security/abuse/resource tests, Playwright e2e + axe, CI workflow

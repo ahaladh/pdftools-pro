@@ -20,7 +20,8 @@ import { PageOrganizer } from './PageOrganizer';
 import type { Built } from '@/features/workspace/model';
 
 const Workspace = lazy(() => import('@/features/workspace/Workspace').then((m) => ({ default: m.Workspace })));
-const WORKSPACE_TOOLS = ['edit', 'sign', 'redact'] as const;
+const ContentEditor = lazy(() => import('@/features/content/ContentEditor').then((m) => ({ default: m.ContentEditor })));
+const WORKSPACE_TOOLS = ['edit', 'sign', 'redact', 'edit-content'] as const;
 
 type Phase = 'select' | 'uploading' | 'processing' | 'done' | 'error';
 const TERMINAL = ['completed', 'failed', 'cancelled', 'expired'];
@@ -112,7 +113,7 @@ function ToolPageInner({ toolId }: { toolId: string }) {
     setError(null); setErrorCode(null);
     if (!isToolId(toolId)) return;
     if (files.length < tool.minFiles) { setError(`Add at least ${tool.minFiles} file${tool.minFiles > 1 ? 's' : ''}.`); return; }
-    if (isWs && !ws?.count) { setError(toolId === 'redact' ? 'Mark at least one area to redact.' : 'Add at least one annotation before saving.'); return; }
+    if (isWs && !ws?.count) { setError(toolId === 'redact' ? 'Mark at least one area or enter text to find and redact.' : toolId === 'edit-content' ? 'Change some text or an image first.' : 'Add at least one annotation before saving.'); return; }
     const pre = preflight(toolId, options);
     if (pre) { setError(pre); return; }
     const parsed = optionSchemas[toolId].safeParse(buildOptions());
@@ -189,7 +190,9 @@ function ToolPageInner({ toolId }: { toolId: string }) {
                   <FileList files={files} onChange={(f) => { setFiles(f); setOrganizer(null); if (!f.length) setWs(null); }} sortable={multi && files.length > 1} disabled={busy} />
                   {isWs ? (
                     <Suspense fallback={<p className="text-sm text-slate-500" role="status">Loading editor…</p>}>
-                      <Workspace key={files[0]!.name + files[0]!.size} mode={tool.id as 'edit' | 'sign' | 'redact'} file={files[0]!} disabled={busy} onChange={setWs} />
+                      {tool.id === 'edit-content'
+                        ? <ContentEditor key={files[0]!.name + files[0]!.size} file={files[0]!} disabled={busy} onChange={setWs} />
+                        : <Workspace key={files[0]!.name + files[0]!.size} mode={tool.id as 'edit' | 'sign' | 'redact'} file={files[0]!} disabled={busy} onChange={setWs} />}
                     </Suspense>
                   ) : tool.id === 'organize' ? (
                     <PageOrganizer file={files[0]!} disabled={busy} onChange={(order, rotations, count) => setOrganizer({ order, rotations, count })} />
@@ -199,7 +202,7 @@ function ToolPageInner({ toolId }: { toolId: string }) {
                   {tool.id === 'compress' && <p className="text-xs text-slate-500">The size reduction depends on your file and is shown after processing.</p>}
                   <div className="flex flex-wrap items-center gap-3">
                     <Button size="lg" onClick={run} disabled={busy || files.length < tool.minFiles || cfg.data?.maintenance}>
-                      {busy && <Loader2 className="h-4 w-4 animate-spin" />}{busy ? 'Working…' : isWs ? (tool.id === 'redact' ? 'Apply redactions' : 'Save PDF') : tool.name}
+                      {busy && <Loader2 className="h-4 w-4 animate-spin" />}{busy ? 'Working…' : isWs ? (tool.id === 'redact' ? 'Apply redactions' : tool.id === 'edit-content' ? 'Apply edits' : 'Save PDF') : tool.name}
                     </Button>
                     {busy && <Button variant="secondary" size="lg" onClick={cancel}>Cancel</Button>}
                   </div>

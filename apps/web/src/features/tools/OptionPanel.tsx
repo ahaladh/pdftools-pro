@@ -14,7 +14,7 @@ export const DEFAULT_OPTIONS: Record<string, O> = {
   watermark: { text: 'CONFIDENTIAL', opacity: 0.25, fontSize: 60, rotation: 45, color: '#888888', pages: 'all' },
   'images-to-pdf': { pageSize: 'fit', margin: 0 },
   'pdf-to-images': { format: 'jpg', dpi: 150, pages: 'all' },
-  'office-to-pdf': {}, 'pdf-to-text': {}, 'pdf-to-html': {}, 'extract-images': {}, flatten: {}, compare: {}, repair: {},
+  'office-to-pdf': {}, 'pdf-to-text': {}, 'pdf-to-html': {}, 'edit-content': {}, 'pdf-to-word': {}, 'pdf-to-excel': {}, 'pdf-to-powerpoint': {}, 'extract-images': {}, flatten: {}, compare: {}, repair: {},
   protect: { password: '', confirm: '' },
   unlock: { password: '', confirmAuthorized: false },
   crop: { top: 0, right: 0, bottom: 0, left: 0, pages: 'all' },

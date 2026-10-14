@@ -1,9 +1,10 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PDFDocument, PDFFont, PDFImage, PDFPage, StandardFonts, BlendMode, LineCapStyle, degrees, rgb } from '@cantoo/pdf-lib';
-import type { Annotation, ToolId } from '@pdftools/shared';
+import type { Annotation, Redaction, ToolId } from '@pdftools/shared';
 import { ToolError } from './errors.js';
 import { loadPdfFile } from './pdf.js';
+import { extractWords, findHits } from './search.js';
 import { assertImageSize, decodeFailure, runEngine, baseName, parseOptions, savePdf, type Processor } from './helpers.js';
 
 const hex = (h: string) => rgb(parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255);
@@ -126,8 +127,22 @@ const redact: Processor = async (ctx) => {
   if (!f || f.kind !== 'pdf' || ctx.inputs.length !== 1) throw new ToolError('invalid_input', 'Provide a single PDF to redact.');
   const src = await loadPdfFile(f.path, ctx.maxPages);
   const n = src.getPageCount();
-  const byPage = new Map<number, typeof o.redactions>();
-  for (const r of o.redactions) {
+  const marks = [...o.redactions];
+  const warnings: string[] = [];
+  let found = 0;
+  if (o.search.length) {
+    const pagesWords = await extractWords(ctx, f.path);
+    // pdftotext reports word boxes in the displayed (rotated) space but the page size unrotated: swap for 90/270.
+    pagesWords.forEach((pw, i) => { if (i < n && Math.abs(src.getPage(i).getRotation().angle) % 180 === 90) [pw.width, pw.height] = [pw.height, pw.width]; });
+    const { hits, perTerm } = findHits(pagesWords, o.search, o.caseSensitive);
+    marks.push(...hits);
+    found = [...perTerm.values()].reduce((a, b) => a + b, 0);
+    const missing = [...perTerm].filter(([, c]) => c === 0).map(([t]) => `"${t}"`);
+    if (missing.length) warnings.push(`No match was found for ${missing.join(', ')}. Only the PDF's text layer is searched: text inside scanned images or drawn as graphics is not found, and a word split across lines by a hyphen is not matched. Check the result before sharing.`);
+    if (!marks.length) throw new ToolError('no_matches', 'None of the search terms were found in the PDF\'s text layer, so nothing was redacted. If this is a scan, draw boxes over the areas instead.');
+  }
+  const byPage = new Map<number, Redaction[]>();
+  for (const r of marks) {
     if (r.page >= n) throw new ToolError('invalid_options', `A redaction is on page ${r.page + 1}, but the document has ${n} pages.`);
     byPage.set(r.page, [...(byPage.get(r.page) ?? []), r]);
   }
@@ -163,9 +178,10 @@ const redact: Processor = async (ctx) => {
     ctx.onProgress?.(Math.round((++done / byPage.size) * 90));
   }
   return savePdf(ctx, out, `${baseName(f.name)}-redacted.pdf`, [
+    ...warnings,
     `${byPage.size} page${byPage.size === 1 ? ' was' : 's were'} converted to images with the marked areas burned in; the covered content was removed. Text on those pages is no longer selectable.`,
     'The output is a new document: original metadata, bookmarks and attachments were not carried over.',
-  ], { pagesRedacted: byPage.size, areas: o.redactions.length });
+  ], { pagesRedacted: byPage.size, areas: marks.length, ...(o.search.length ? { textMatches: found } : {}) });
 };
 
 export const TOOLS3: Partial<Record<ToolId, Processor>> = {

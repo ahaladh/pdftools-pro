@@ -32,6 +32,8 @@ export function Workspace({ mode, file, disabled, onChange }: Props) {
   const [tool, setTool] = useState<Tool>('select');
   const [defaults, setDefaults] = useState<Defaults>(DEFAULTS);
   const [dpi, setDpi] = useState(150);
+  const [searchText, setSearchText] = useState('');
+  const [caseSensitive, setCaseSensitive] = useState(false);
   const [images, setImages] = useState<{ file: File; url: string }[]>([]);
   const [pendingImage, setPendingImage] = useState<number | null>(null);
   const [showPad, setShowPad] = useState(false);
@@ -66,7 +68,7 @@ export function Workspace({ mode, file, disabled, onChange }: Props) {
   }, [doc]);
 
   // report payload upward
-  useEffect(() => { onChange(buildPayload(mode, hist.present, images.map((i) => i.file), dpi)); }, [hist.present, images, dpi, mode]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { onChange(buildPayload(mode, hist.present, images.map((i) => i.file), dpi, { text: searchText, caseSensitive })); }, [hist.present, images, dpi, mode, searchText, caseSensitive]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // keyboard: delete selected, undo/redo
   useEffect(() => {
@@ -175,7 +177,15 @@ export function Workspace({ mode, file, disabled, onChange }: Props) {
         </div>
       )}
       {mode === 'redact' && (
+        <>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Field label="Find and redact text (optional)" hint="One word or phrase per line. Every match in the PDF's text layer is covered, including partial matches inside a word. Scanned images are not searched.">
+            <textarea className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" rows={3} maxLength={5000} value={searchText} disabled={disabled} onChange={(e) => setSearchText(e.target.value)} placeholder={'Jane Doe\n555-0100'} />
+          </Field>
+          <label className="flex items-center gap-2 self-end text-sm"><input type="checkbox" checked={caseSensitive} disabled={disabled} onChange={(e) => setCaseSensitive(e.target.checked)} />Match case</label>
+        </div>
         <div className="max-w-xs"><Field label="Resolution of redacted pages (DPI)" hint="Higher is sharper but makes a larger file."><Select value={dpi} onChange={(e) => setDpi(Number(e.target.value))}><option value={100}>100</option><option value={150}>150</option><option value={200}>200</option><option value={300}>300</option></Select></Field></div>
+        </>
       )}
 
       <div className="flex gap-3">

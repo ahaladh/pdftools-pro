@@ -15,6 +15,9 @@
   <url><loc>http://localhost:4173/watermark</loc></url>
   <url><loc>http://localhost:4173/images-to-pdf</loc></url>
   <url><loc>http://localhost:4173/pdf-to-images</loc></url>
+  <url><loc>http://localhost:4173/pdf-to-word</loc></url>
+  <url><loc>http://localhost:4173/pdf-to-excel</loc></url>
+  <url><loc>http://localhost:4173/pdf-to-powerpoint</loc></url>
   <url><loc>http://localhost:4173/office-to-pdf</loc></url>
   <url><loc>http://localhost:4173/protect</loc></url>
   <url><loc>http://localhost:4173/unlock</loc></url>
@@ -27,6 +30,7 @@
   <url><loc>http://localhost:4173/flatten</loc></url>
   <url><loc>http://localhost:4173/compare</loc></url>
   <url><loc>http://localhost:4173/repair</loc></url>
+  <url><loc>http://localhost:4173/edit-content</loc></url>
   <url><loc>http://localhost:4173/edit</loc></url>
   <url><loc>http://localhost:4173/sign</loc></url>
   <url><loc>http://localhost:4173/redact</loc></url>

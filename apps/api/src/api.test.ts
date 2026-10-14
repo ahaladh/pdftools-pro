@@ -299,3 +299,87 @@ describe('editor tools via API', () => {
     expect(job.warnings.join()).toMatch(/no longer selectable/);
   });
 });
+
+describe('conversions and find-and-redact over HTTP', () => {
+  async function textPdf() {
+    const { StandardFonts } = await import('@cantoo/pdf-lib');
+    const d = await PDFDocument.create();
+    const font = await d.embedFont(StandardFonts.Helvetica);
+    const p = d.addPage([400, 200]);
+    p.drawText('Name', { x: 20, y: 150, size: 14, font }); p.drawText('Balance', { x: 180, y: 150, size: 14, font });
+    p.drawText('TOPSECRETNAME', { x: 20, y: 120, size: 14, font }); p.drawText('1,250.50', { x: 180, y: 120, size: 14, font });
+    return Buffer.from(await d.save());
+  }
+  const bytes = (a: ReturnType<typeof request.agent>, url: string) => a.get(url).buffer(true).parse((res, cb) => { const c: Buffer[] = []; res.on('data', (x) => c.push(x)); res.on('end', () => cb(null, Buffer.concat(c))); });
+
+  it('PDF to Excel returns an XLSX with the number typed', async () => {
+    const a = request.agent(ctx.app);
+    const sub = await a.post('/api/pdf/pdf-to-excel').attach('files', await textPdf(), 'ledger.pdf');
+    expect(sub.status).toBe(202);
+    const job = await waitDone(a, sub.body.data.jobId);
+    expect(job.state).toBe('completed');
+    expect(job.result.name).toBe('ledger.xlsx');
+    expect(job.result.mime).toContain('spreadsheetml');
+    const { unzipSync, strFromU8 } = await import('fflate');
+    const z = unzipSync(new Uint8Array((await bytes(a, job.result.downloadUrl)).body));
+    expect(strFromU8(z['xl/worksheets/sheet1.xml']!)).toContain('<v>1250.5</v>');
+  });
+  it('PDF to Word returns a DOCX', async () => {
+    const a = request.agent(ctx.app);
+    const sub = await a.post('/api/pdf/pdf-to-word').attach('files', await textPdf(), 'ledger.pdf');
+    const job = await waitDone(a, sub.body.data.jobId);
+    expect(job.state).toBe('completed');
+    expect(job.result.name).toBe('ledger.docx');
+  });
+  it('find-and-redact removes the matched text from the downloaded file', async () => {
+    const a = request.agent(ctx.app);
+    const sub = await a.post('/api/pdf/redact').field('options', JSON.stringify({ search: ['topsecretname'] })).attach('files', await textPdf(), 'ledger.pdf');
+    expect(sub.status).toBe(202);
+    const job = await waitDone(a, sub.body.data.jobId);
+    expect(job.state).toBe('completed');
+    const dl = await bytes(a, job.result.downloadUrl);
+    expect(dl.body.toString('latin1')).not.toContain('TOPSECRETNAME');
+    expect(job.stats).toMatchObject({ textMatches: 1 });
+  });
+  it('find-and-redact with no match fails the job instead of returning an unredacted copy', async () => {
+    const a = request.agent(ctx.app);
+    const sub = await a.post('/api/pdf/redact').field('options', JSON.stringify({ search: ['does-not-appear'] })).attach('files', await textPdf(), 'ledger.pdf');
+    const job = await waitDone(a, sub.body.data.jobId);
+    expect(job.state).toBe('failed');
+    expect(job.error.code).toBe('no_matches');
+    expect(job.result).toBeUndefined();
+  });
+});
+
+describe('edit existing text and images over HTTP', () => {
+  async function doc() {
+    const { StandardFonts } = await import('@cantoo/pdf-lib');
+    const d = await PDFDocument.create();
+    const font = await d.embedFont(StandardFonts.Helvetica);
+    const p = d.addPage([400, 200]);
+    p.drawText('Pay to ACME Corp today', { x: 30, y: 120, size: 16, font });
+    return Buffer.from(await d.save());
+  }
+  it('rewrites a word of existing text; the old word is gone from the downloaded file', async () => {
+    const { execFileSync } = await import('node:child_process');
+    const { writeFileSync } = await import('node:fs');
+    const a = request.agent(ctx.app);
+    // box around "ACME": x 30 + width("Pay to ")=~49 .. , y: baseline 120 of 200 -> 80 from top
+    const edit = { page: 0, x: 0.2, y: 0.34, w: 0.12, h: 0.14, original: 'ACME', replacement: 'Globex' };
+    const sub = await a.post('/api/pdf/edit-content').field('options', JSON.stringify({ textEdits: [edit] })).attach('files', await doc(), 'pay.pdf');
+    expect(sub.status).toBe(202);
+    const job = await waitDone(a, sub.body.data.jobId);
+    expect(job.state, JSON.stringify(job.error)).toBe('completed');
+    const dl = await a.get(job.result.downloadUrl).buffer(true).parse((res, cb) => { const c: Buffer[] = []; res.on('data', (x) => c.push(x)); res.on('end', () => cb(null, Buffer.concat(c))); });
+    const path = join(storage, 'edited.pdf'); writeFileSync(path, dl.body);
+    const t = execFileSync('pdftotext', [path, '-']).toString();
+    expect(t).toContain('Globex'); expect(t).not.toContain('ACME'); expect(t).toContain('Pay to');
+  });
+  it('fails clearly when nothing editable is under the box', async () => {
+    const a = request.agent(ctx.app);
+    const sub = await a.post('/api/pdf/edit-content').field('options', JSON.stringify({ textEdits: [{ page: 0, x: 0.8, y: 0.8, w: 0.1, h: 0.1, replacement: 'x' }] })).attach('files', await doc(), 'pay.pdf');
+    const job = await waitDone(a, sub.body.data.jobId);
+    expect(job.state).toBe('failed');
+    expect(job.error.code).toBe('text_not_found');
+  });
+});
