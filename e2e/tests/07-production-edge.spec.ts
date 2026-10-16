@@ -1,6 +1,7 @@
 import { test, expect, request as pwRequest, type APIRequestContext } from '@playwright/test';
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import mongoose from 'mongoose';
@@ -49,7 +50,12 @@ test.afterAll(async () => { await http?.dispose(); edge?.stop(); try { process.k
 test.describe('edge configuration', () => {
   test('nginx accepts the rendered production config (paths with spaces included)', () => {
     expect(edge.test()).toBe('ok');
-    expect(ROOT).toContain(' '); // this run deliberately lives under a path with a space: the template quotes its paths
+    // The template must quote its paths. Prove it with a web root that contains spaces, wherever the repo itself happens to live.
+    const spaced = join(mkdtempSync(join(tmpdir(), 'edge dir with spaces-')), 'web root');
+    symlinkSync(join(ROOT, 'apps/web/dist'), spaced);
+    const other = startEdge({ apiAddr: `127.0.0.1:${API_PORT}`, httpPort: HTTP_PORT + 100, httpsPort: HTTPS_PORT + 100, webRoot: spaced });
+    try { expect(spaced).toContain(' '); expect(readFileSync(other.conf, 'utf8')).toContain(`root "${spaced}"`); expect(other.test()).toBe('ok'); }
+    finally { other.stop(); }
   });
 
   test('plain HTTP redirects to HTTPS (permanent) without serving content, except ACME challenges', async () => {
