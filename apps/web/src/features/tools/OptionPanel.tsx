@@ -20,6 +20,8 @@ export const DEFAULT_OPTIONS: Record<string, O> = {
   crop: { top: 0, right: 0, bottom: 0, left: 0, pages: 'all' },
   resize: { size: 'a4', pages: 'all' },
   'add-blank-pages': { count: 1, where: 'end', after: 1 },
+  ocr: { language: 'eng', dpi: 300, skipTextPages: true },
+  'pdf-to-pdfa': { level: '2b' },
 };
 
 /** Cross-field checks the schema can't express; returns an error message or null. */
@@ -44,6 +46,29 @@ export function OptionPanel({ tool, value, onChange, disabled }: Props) {
   const v = value as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
   const dis = { disabled };
   switch (tool) {
+    case 'ocr':
+      return (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Language" hint="Tesseract code, e.g. eng, deu, fra. Combine with + (eng+deu). If it is not installed, the error lists what is."><TextInput {...dis} value={v.language} onChange={(e) => set({ language: e.target.value.trim() })} placeholder="eng" /></Field>
+          <Field label="Scan resolution (DPI)" hint="300 suits most printed scans; higher is slower."><Select {...dis} value={v.dpi} onChange={(e) => set({ dpi: Number(e.target.value) })}><option value={200}>200</option><option value={300}>300</option><option value={400}>400</option></Select></Field>
+          <label className="flex items-center gap-2 text-sm text-slate-800 sm:col-span-2">
+            <input {...dis} type="checkbox" checked={Boolean(v.skipTextPages)} onChange={(e) => set({ skipTextPages: e.target.checked })} />
+            Skip pages that already contain text
+          </label>
+          <p className="text-xs text-slate-500 sm:col-span-2">Your pages look exactly the same afterwards: the recognised text is added invisibly under the scan. Recognition can contain mistakes.</p>
+        </div>
+      );
+    case 'pdf-to-pdfa':
+      return (
+        <div className="space-y-4">
+          <Radio name="PDF/A level" value={v.level as '2b'} onChange={(level) => set({ level })} options={[
+            { value: '2b', label: 'PDF/A-2b', desc: 'Recommended: the usual choice for archiving' },
+            { value: '1b', label: 'PDF/A-1b', desc: 'Oldest and strictest; transparency is flattened' },
+            { value: '3b', label: 'PDF/A-3b', desc: 'Like 2b, and allows embedded files' },
+          ]} />
+          <p className="text-xs text-slate-500">Encryption, JavaScript and multimedia are removed. The result page says whether it was independently validated.</p>
+        </div>
+      );
     case 'split':
       return (
         <div className="space-y-4">

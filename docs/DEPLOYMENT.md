@@ -69,9 +69,11 @@ Notes that bite people:
 1. **Install system packages**
    ```bash
    sudo apt install nginx certbot ghostscript poppler-utils imagemagick util-linux \
-        libreoffice-writer libreoffice-calc libreoffice-impress fonts-liberation redis-server
+        libreoffice-writer libreoffice-calc libreoffice-impress fonts-liberation redis-server \
+        tesseract-ocr tesseract-ocr-eng default-jre-headless   # optional: OCR, and Java for the PDF/A validator
    # Node 22 (nodesource or nvm; the units expect /usr/bin/node), MongoDB 7 (official repo) or a managed MongoDB
    ```
+   **Optional engines.** *OCR* needs `tesseract-ocr` plus one `tesseract-ocr-<lang>` package per language you offer (users are told which languages exist). *PDF/A* conversion works with Ghostscript alone, but then results are labelled **"not independently validated"**. To validate every result (and refuse to deliver files that fail), install [veraPDF](https://verapdf.org/) and set `VERAPDF_BIN=/path/to/verapdf` in the service environment (`infrastructure/scripts/dev-engines.sh` shows an unattended install; the Docker image does this with a pinned, checksummed download). `npm run doctor` reports both as warnings when absent. If the binaries live outside the standard PATH set `PDFTOOLS_BIN_DIR` (plus `TESSDATA_PREFIX` / `LD_LIBRARY_PATH` if needed); only those listed variables are passed to engines.
 2. **User and tree**
    ```bash
    sudo useradd --system --home /opt/pdftools --shell /usr/sbin/nologin pdftools

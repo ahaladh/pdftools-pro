@@ -82,7 +82,7 @@ const pdfToText: Processor = async (ctx) => {
   const out = join(ctx.workDir, 'result.txt');
   await runEngine(ctx, 'pdftotext', ['-layout', '-enc', 'UTF-8', f.path, out]);
   const text = await readFile(out, 'utf8');
-  const warnings = text.replace(/[\s\f]/g, '') === '' ? ['No text layer was found. This looks like a scanned PDF; OCR is not available yet.'] : [];
+  const warnings = text.replace(/[\s\f]/g, '') === '' ? ['No text layer was found. This looks like a scanned PDF: run it through the OCR PDF tool first.'] : [];
   return { path: out, name: `${baseName(f.name)}.txt`, mime: 'text/plain; charset=utf-8', warnings, stats: { characters: text.length } };
 };
 

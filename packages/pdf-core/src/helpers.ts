@@ -4,7 +4,7 @@ import type { PDFDocument } from '@cantoo/pdf-lib';
 import { zipSync } from 'fflate';
 import { optionSchemas, parsePageRanges, type ToolId, type ToolOptions } from '@pdftools/shared';
 import { ToolError } from './errors.js';
-import { run } from './exec.js';
+import { run, runCapture } from './exec.js';
 import type { ProcessContext, ProcessResult } from './types.js';
 
 export const PDF_MIME = 'application/pdf';
@@ -51,6 +51,17 @@ export function runEngine(ctx: ProcessContext, bin: string, args: string[], opts
   if (remaining <= 0) return Promise.reject(new ToolError('timeout', 'Processing took too long and was stopped'));
   return run(bin, args, {
     cwd: ctx.workDir, timeoutMs: remaining, signal: ctx.signal,
+    limits: l ? { memoryMB: opts.office ? l.officeMemoryMB ?? l.memoryMB : l.memoryMB, cpuSeconds: l.cpuSeconds, fileMB: l.fileMB } : undefined,
+  });
+}
+
+/** `runEngine` that also returns stdout. */
+export function runEngineOut(ctx: ProcessContext, bin: string, args: string[], opts: { office?: boolean; env?: Record<string, string> } = {}) {
+  const l = ctx.limits;
+  const remaining = (ctx.deadline ?? Date.now() + ctx.timeoutMs) - Date.now();
+  if (remaining <= 0) return Promise.reject(new ToolError('timeout', 'Processing took too long and was stopped'));
+  return runCapture(bin, args, {
+    cwd: ctx.workDir, timeoutMs: remaining, signal: ctx.signal, env: opts.env,
     limits: l ? { memoryMB: opts.office ? l.officeMemoryMB ?? l.memoryMB : l.memoryMB, cpuSeconds: l.cpuSeconds, fileMB: l.fileMB } : undefined,
   });
 }

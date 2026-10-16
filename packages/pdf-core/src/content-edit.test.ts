@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { vi, describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdtemp, rm, writeFile, readFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,6 +7,9 @@ import { PDFDict, PDFDocument, PDFName, StandardFonts, degrees } from '@cantoo/p
 import { processTool, type InputFile } from './index.js';
 import { analyzePage } from './content-edit.js';
 import { parseBBox } from './search.js';
+
+// These tests start real engines (LibreOffice, a JVM, Tesseract): seconds each even when idle, far more under load.
+vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 
 let root: string;
 let n = 0;

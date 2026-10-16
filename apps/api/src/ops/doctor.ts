@@ -1,11 +1,12 @@
 import { execFile } from 'node:child_process';
 import { mkdir, rm, statfs, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { zipSync, strToU8 } from 'fflate';
 import { Redis } from 'ioredis';
 import mongoose from 'mongoose';
-import { processToolIsolated } from '@pdftools/pdf-core';
+import { processToolIsolated, engineEnv } from '@pdftools/pdf-core';
 import type { Env } from '../config/env.js';
 import { connectDb, disconnectDb } from '../db/models.js';
 import { migrationStatus } from '../db/migrations.js';
@@ -48,11 +49,26 @@ export function checkConfig(env: Env): DoctorCheck[] {
   return out;
 }
 
+/** Engines for optional features: absence is a warning that names what stops working, not a failed deployment. */
+const OPTIONAL: { bin: () => string | undefined; args: string[]; missing: string }[] = [
+  { bin: () => 'tesseract', args: ['--version'], missing: 'OCR will be unavailable (set PDFTOOLS_BIN_DIR/TESSDATA_PREFIX or install tesseract-ocr)' },
+  { bin: () => process.env.VERAPDF_BIN, args: ['--version'], missing: 'PDF/A results will be marked "not independently validated" (set VERAPDF_BIN to a veraPDF CLI)' },
+];
+
 async function engines(): Promise<DoctorCheck[]> {
-  return Promise.all(ENGINES.map(async ([bin, args]) => {
-    try { const { stdout, stderr } = await exec(bin, args, { timeout: 20_000 }); return { name: `engine: ${bin}`, level: 'pass' as Level, detail: (stdout + stderr).split('\n')[0]!.trim().slice(0, 80) }; }
-    catch (e) { return { name: `engine: ${bin}`, level: 'fail' as Level, detail: (e as { code?: string }).code === 'ENOENT' ? 'not installed' : 'failed to run' }; }
-  }));
+  const env = engineEnv(tmpdir()); // the same PATH/variables jobs use
+  const required = ENGINES.map(async ([bin, args]): Promise<DoctorCheck> => {
+    try { const { stdout, stderr } = await exec(bin, args, { timeout: 20_000, env }); return { name: `engine: ${bin}`, level: 'pass', detail: (stdout + stderr).split('\n')[0]!.trim().slice(0, 80) }; }
+    catch (e) { return { name: `engine: ${bin}`, level: 'fail', detail: (e as { code?: string }).code === 'ENOENT' ? 'not installed' : 'failed to run' }; }
+  });
+  const optional = OPTIONAL.map(async (o): Promise<DoctorCheck> => {
+    const bin = o.bin();
+    const name = `engine: ${bin ? bin.split('/').pop() : 'veraPDF'} (optional)`;
+    if (!bin) return { name, level: 'warn', detail: o.missing };
+    try { const { stdout, stderr } = await exec(bin, o.args, { timeout: 30_000, env: { ...env, JAVA_TOOL_OPTIONS: '-Xmx256m' } }); return { name, level: 'pass', detail: (stdout + stderr).split('\n').find((l) => l.trim())!.trim().slice(0, 80) }; }
+    catch { return { name, level: 'warn', detail: o.missing }; }
+  });
+  return Promise.all([...required, ...optional]);
 }
 
 /** Prove the kernel really enforces the memory cap the isolation relies on (not just that prlimit exists). */

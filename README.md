@@ -48,7 +48,7 @@ npm run test:e2e    # builds, then Playwright in Chrome against API + separate w
                     # plus real nginx (TLS) and Caddy for the production-edge and proxy-chain suites
 ```
 
-Some suites need extra binaries (they skip with a warning locally, and fail in CI if missing): `nginx` (`NGINX_BIN`), `caddy` (`CADDY_BIN`), MongoDB database tools (`MONGO_TOOLS_DIR`). Integration tests need a real Redis: set `REDIS_URL` (e.g. a service container), or `REDIS_SERVER_BIN=/path/to/redis-server`, or let `redis-memory-server` build one on first use (that build fails if the project path contains spaces). MongoDB is downloaded automatically by `mongodb-memory-server`. Chrome must be installed for e2e (`channel: 'chrome'`).
+Some suites need extra binaries (they skip with a warning locally, and fail in CI if missing): `nginx` (`NGINX_BIN`), `caddy` (`CADDY_BIN`), MongoDB database tools (`MONGO_TOOLS_DIR`). Integration tests need a real Redis: set `REDIS_URL` (e.g. a service container), or `REDIS_SERVER_BIN=/path/to/redis-server`, or let `redis-memory-server` build one on first use (that build fails if the project path contains spaces). MongoDB is downloaded automatically by `mongodb-memory-server`. Chrome must be installed for e2e (`channel: 'chrome'`). The OCR and PDF/A tests need Tesseract and veraPDF: `eval "$(infrastructure/scripts/dev-engines.sh)"` installs both into `~/.cache/pdftools` without root and exports the settings; without them those tests skip with a warning (and fail in CI).
 
 ## Build
 ```bash

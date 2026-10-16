@@ -25,20 +25,20 @@ export default function Pricing() {
   const billing = cfg.data?.features.billing;
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-12 sm:px-6">
-      <h1 className="text-3xl font-bold tracking-tight">Pricing</h1>
-      <p className="mt-2 text-slate-600">{billing ? 'Start free. Upgrade when you need bigger files, more operations or premium tools.' : 'All plans are shown for reference; paid checkout is not enabled on this server.'}</p>
+    <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6">
+      <h1 className="text-4xl font-bold tracking-tight">Pricing</h1>
+      <p className="mt-3 max-w-2xl text-lg text-slate-600">{billing ? 'Start free. Upgrade when you need bigger files, more operations or premium tools.' : 'All plans are shown for reference; paid checkout is not enabled on this server.'}</p>
       {params.get('checkout') === 'cancelled' && <p role="status" className="mt-4 rounded-xl bg-slate-50 p-3 text-sm">Checkout was cancelled. You have not been charged.</p>}
       <div className="mt-8 grid gap-6 md:grid-cols-3">
         {list.map((p) => {
           const current = user?.plan === p.id;
           return (
-            <Card key={p.id} className={cn('flex flex-col p-6', p.id === 'pro' && 'border-brand-500 ring-1 ring-brand-500')}>
-              <h2 className="text-lg font-semibold">{p.name}</h2>
-              <p className="mt-2 text-3xl font-bold">{price(p)}{p.priceCents > 0 && <span className="text-sm font-normal text-slate-500"> / month</span>}</p>
-              <ul className="mt-4 flex-1 space-y-2 text-sm">
+            <Card key={p.id} className={cn('flex flex-col p-7 transition-shadow hover:shadow-[var(--shadow-lift)]', p.id === 'pro' && 'border-brand-300 bg-gradient-to-b from-brand-50/70 to-white shadow-[var(--shadow-lift)] ring-2 ring-brand-500/80')}>
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-600">{p.name}</h2>
+              <p className="mt-3 text-4xl font-extrabold tracking-tight">{price(p)}{p.priceCents > 0 && <span className="text-sm font-normal tracking-normal text-slate-600"> / month</span>}</p>
+              <ul className="mt-6 flex-1 space-y-3 border-t border-slate-200/70 pt-6 text-sm text-slate-700">
                 {[`Files up to ${p.maxFileMB} MB`, `Up to ${p.maxPages.toLocaleString()} pages`, `${p.dailyOps.toLocaleString()} operations per day`, `${p.maxConcurrentJobs} jobs at once`, `Results kept ${hours(p.retentionMinutes)}`, ...p.features].map((x) => (
-                  <li key={x} className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />{x}</li>
+                  <li key={x} className="flex gap-2"><span className="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full bg-emerald-100 text-emerald-700"><Check className="h-3 w-3" aria-hidden="true" /></span>{x}</li>
                 ))}
               </ul>
               <div className="mt-6">
@@ -48,14 +48,14 @@ export default function Pricing() {
                     <Button className="w-full" disabled={checkout.isPending} onClick={() => (status === 'authenticated' ? checkout.mutate(p.id as 'pro' | 'business') : nav(`/signin?next=/pricing`))}>
                       {status === 'authenticated' ? `Upgrade to ${p.name}` : 'Sign in to upgrade'}
                     </Button>
-                  ) : <p className="text-center text-sm text-slate-500">Not available for purchase yet</p>}
+                  ) : <p className="text-center text-sm text-slate-600">Not available for purchase yet</p>}
               </div>
             </Card>
           );
         })}
       </div>
       {checkout.error && <p role="alert" className="mt-4 text-sm text-red-600">{(checkout.error as Error).message}</p>}
-      <p className="mt-6 text-xs text-slate-500">Payments are handled by Stripe; we never see your card details. Cancel any time from your account.</p>
+      <p className="mt-8 text-xs text-slate-600">Payments are handled by Stripe; we never see your card details. Cancel any time from your account.</p>
     </div>
   );
 }

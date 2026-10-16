@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Dropzone } from '@/components/Dropzone';
 import { FileList } from '@/components/FileList';
+import { CATEGORY_STYLE } from '@/lib/category';
 import { ToolIcon } from '@/components/ToolIcon';
 import { ApiError, api } from '@/lib/api';
 import { acceptAttr, acceptLabel, validateFile } from '@/lib/files';
@@ -146,17 +147,18 @@ function ToolPageInner({ toolId }: { toolId: string }) {
   const busy = phase === 'uploading' || phase === 'processing';
 
   return (
-    <div className={`mx-auto ${isWs ? 'max-w-7xl' : 'max-w-5xl'} px-4 py-10 sm:px-6`}>
-      <nav aria-label="Breadcrumb" className="mb-4 flex items-center gap-1 text-sm text-slate-500">
-        <Link to="/" className="hover:text-brand-700">Home</Link><ChevronRight className="h-3 w-3" />
-        <Link to="/tools" className="hover:text-brand-700">Tools</Link><ChevronRight className="h-3 w-3" />
-        <span aria-current="page" className="text-slate-800">{tool.name}</span>
+    <div className="bg-gradient-to-b from-brand-50/70 via-white to-white">
+    <div className={`mx-auto ${isWs ? 'max-w-7xl' : 'max-w-5xl'} px-4 pb-12 pt-8 sm:px-6`}>
+      <nav aria-label="Breadcrumb" className="mb-5 flex items-center gap-1.5 text-sm text-slate-600">
+        <Link to="/" className="transition-colors hover:text-brand-700">Home</Link><ChevronRight className="h-3 w-3 text-slate-400" aria-hidden="true" />
+        <Link to="/tools" className="transition-colors hover:text-brand-700">Tools</Link><ChevronRight className="h-3 w-3 text-slate-400" aria-hidden="true" />
+        <span aria-current="page" className="font-medium text-slate-900">{tool.name}</span>
       </nav>
       <header className="mb-8 flex items-start gap-4">
-        <span className="rounded-2xl bg-brand-50 p-3 text-brand-600"><ToolIcon id={tool.id} className="h-8 w-8" /></span>
+        <span className={`grid h-14 w-14 shrink-0 place-items-center rounded-2xl ring-1 ring-inset shadow-[var(--shadow-soft)] ${CATEGORY_STYLE[tool.category].tile}`}><ToolIcon id={tool.id} className="h-7 w-7" /></span>
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">{tool.name}</h1>
-          <p className="mt-1 text-slate-600">{tool.short}</p>
+          <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{tool.name}</h1>
+          <p className="mt-1.5 text-base text-slate-600">{tool.short}</p>
         </div>
       </header>
 
@@ -167,7 +169,7 @@ function ToolPageInner({ toolId }: { toolId: string }) {
           <Link to="/tools" className="mt-4 inline-block text-brand-700 underline">Browse available tools</Link>
         </Card>
       ) : (
-        <Card className="p-6">
+        <Card className="p-6 shadow-[var(--shadow-lift)] sm:p-8">
           {cfg.data?.maintenance && <p role="alert" className="mb-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">The service is in maintenance mode; processing is temporarily unavailable.</p>}
 
           {phase === 'done' && job?.result ? (
@@ -197,7 +199,7 @@ function ToolPageInner({ toolId }: { toolId: string }) {
                   ) : tool.id === 'organize' ? (
                     <PageOrganizer file={files[0]!} disabled={busy} onChange={(order, rotations, count) => setOrganizer({ order, rotations, count })} />
                   ) : (
-                    <section aria-label="Settings"><h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">Settings</h2><OptionPanel tool={tool.id} value={options} onChange={setOptions} disabled={busy} /></section>
+                    <section aria-label="Settings"><h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-600">Settings</h2><OptionPanel tool={tool.id} value={options} onChange={setOptions} disabled={busy} /></section>
                   )}
                   {tool.id === 'compress' && <p className="text-xs text-slate-500">The size reduction depends on your file and is shown after processing.</p>}
                   <div className="flex flex-wrap items-center gap-3">
@@ -221,7 +223,7 @@ function ToolPageInner({ toolId }: { toolId: string }) {
               )}
             </>
           )}
-          <p className="mt-6 flex items-start gap-2 border-t border-slate-100 pt-4 text-xs text-slate-500">
+          <p className="mt-6 flex items-start gap-2 border-t border-slate-100 pt-4 text-xs text-slate-600">
             <Lock className="mt-0.5 h-3 w-3 shrink-0" />
             Your files are sent over an encrypted connection, stored privately, and deleted automatically
             {cfg.data ? ` within ${cfg.data.limits.retentionMinutes} minutes` : ''}. Uploaded originals are deleted as soon as processing finishes.
@@ -229,24 +231,25 @@ function ToolPageInner({ toolId }: { toolId: string }) {
         </Card>
       )}
 
-      <section className="mt-12 grid gap-8 md:grid-cols-3">
+      <section className="mt-16 grid gap-10 md:grid-cols-3">
         <div className="md:col-span-2">
-          <h2 className="text-xl font-semibold">About {tool.name}</h2>
-          <p className="mt-2 text-slate-600">{tool.description}</p>
+          <h2 className="text-xl font-semibold tracking-tight">About {tool.name}</h2>
+          <p className="mt-3 leading-relaxed text-slate-600">{tool.description}</p>
           {tool.faq.length > 0 && (
-            <div className="mt-6 space-y-4">
-              <h2 className="text-xl font-semibold">Frequently asked questions</h2>
-              {tool.faq.map((f) => <details key={f.q} className="rounded-xl border border-slate-200 p-4"><summary className="cursor-pointer font-medium">{f.q}</summary><p className="mt-2 text-sm text-slate-600">{f.a}</p></details>)}
+            <div className="mt-8 space-y-3">
+              <h2 className="mb-4 text-xl font-semibold tracking-tight">Frequently asked questions</h2>
+              {tool.faq.map((f) => <details key={f.q} className="group rounded-2xl border border-slate-200/80 bg-white px-5 py-4 shadow-[var(--shadow-soft)] open:border-brand-200"><summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-medium [&::-webkit-details-marker]:hidden">{f.q}<span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-600 transition-transform group-open:rotate-45" aria-hidden="true">+</span></summary><p className="mt-3 text-sm leading-relaxed text-slate-600">{f.a}</p></details>)}
             </div>
           )}
         </div>
         <aside>
-          <h2 className="text-xl font-semibold">Related tools</h2>
-          <ul className="mt-3 space-y-2">
-            {related.map((t) => <li key={t!.id}><Link to={`/${t!.id}`} className="flex items-center gap-2 rounded-xl border border-slate-200 p-3 text-sm hover:border-brand-500"><ToolIcon id={t!.id} className="h-4 w-4 text-brand-600" />{t!.name}</Link></li>)}
+          <h2 className="text-xl font-semibold tracking-tight">Related tools</h2>
+          <ul className="mt-4 space-y-2.5">
+            {related.map((t) => <li key={t!.id}><Link to={`/${t!.id}`} className="group flex items-center gap-3 rounded-xl border border-slate-200/80 bg-white p-3 text-sm font-medium shadow-[var(--shadow-soft)] transition-all hover:-translate-y-0.5 hover:border-brand-200 hover:shadow-[var(--shadow-lift)]"><span className={`grid h-8 w-8 place-items-center rounded-lg ring-1 ring-inset ${CATEGORY_STYLE[t!.category].tile}`}><ToolIcon id={t!.id} className="h-4 w-4" /></span>{t!.name}</Link></li>)}
           </ul>
         </aside>
       </section>
+    </div>
     </div>
   );
 }
@@ -255,7 +258,7 @@ function Progress({ label, pct }: { label: string; pct: number }) {
   return (
     <div className="mt-6" role="status" aria-live="polite">
       <div className="mb-1 flex justify-between text-sm text-slate-700"><span>{label}…</span><span>{pct}%</span></div>
-      <div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-brand-600 transition-all" style={{ width: `${pct}%` }} /></div>
+      <div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-gradient-to-r from-brand-500 to-violet-500 transition-all" style={{ width: `${pct}%` }} /></div>
     </div>
   );
 }
@@ -264,8 +267,8 @@ function Result({ job, onDownload, onAnother, onDelete, toolId }: { job: JobView
   const s = job.stats;
   return (
     <div className="text-center">
-      <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-600" aria-hidden="true" />
-      <h2 className="mt-3 text-2xl font-semibold">Your file is ready</h2>
+      <span className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-emerald-50 text-emerald-600 ring-8 ring-emerald-50/60"><CheckCircle2 className="h-9 w-9" aria-hidden="true" /></span>
+      <h2 className="mt-5 text-2xl font-semibold tracking-tight">Your file is ready</h2>
       <p className="mt-1 text-sm text-slate-600">{job.result!.name} · {formatBytes(job.result!.bytes)}</p>
       {toolId === 'compress' && s && (
         <dl className="mx-auto mt-5 grid max-w-md grid-cols-3 gap-3 text-sm">

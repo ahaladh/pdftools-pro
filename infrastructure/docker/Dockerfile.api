@@ -23,16 +23,31 @@ FROM manifests AS deps
 ENV MONGOMS_DISABLE_POSTINSTALL=1 REDISMS_DISABLE_POSTINSTALL=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 RUN npm ci --omit=dev --workspace @pdftools/shared --workspace @pdftools/pdf-core --workspace @pdftools/api --include-workspace-root
 
+# veraPDF (PDF/A validator, Java). Pinned version AND checksum: the build fails if the download changes.
+FROM node:${NODE_VERSION}-bookworm-slim AS verapdf
+ARG VERAPDF_VERSION=1.30.3
+ARG VERAPDF_SHA256=b512bf24945503a33fc10738ecffc1f2dccaaf8593a448e94ee9ac86a9559a59
+RUN apt-get update && apt-get install -y --no-install-recommends default-jre-headless unzip curl ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY infrastructure/docker/verapdf-install.xml /tmp/verapdf-install.xml
+RUN curl -fsSL -o /tmp/vp.zip "https://software.verapdf.org/rel/${VERAPDF_VERSION%.*}/verapdf-greenfield-${VERAPDF_VERSION}-installer.zip" \
+ && echo "${VERAPDF_SHA256}  /tmp/vp.zip" | sha256sum -c - \
+ && unzip -q /tmp/vp.zip -d /tmp/vp \
+ && java -jar /tmp/vp/verapdf-greenfield-${VERAPDF_VERSION}/verapdf-izpack-installer-${VERAPDF_VERSION}.jar /tmp/verapdf-install.xml \
+ && /opt/verapdf/verapdf --version
+
 FROM node:${NODE_VERSION}-bookworm-slim AS runtime
 ARG APP_VERSION=dev
 # PDF engines: Ghostscript (compress/repair), Poppler (render/extract), ImageMagick (redaction burn-in), LibreOffice (Office
-# to PDF), prlimit (util-linux; kernel resource limits for every job), tini (proper PID 1: signal forwarding, zombie reaping).
+# to PDF), Tesseract (OCR), a JRE for veraPDF (PDF/A validation), prlimit (util-linux; kernel resource limits for every job),
+# tini (proper PID 1: signal forwarding, zombie reaping). Add more OCR languages with tesseract-ocr-<lang>.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends tini ghostscript poppler-utils imagemagick util-linux \
     libreoffice-writer libreoffice-calc libreoffice-impress fonts-liberation ca-certificates \
+    tesseract-ocr tesseract-ocr-eng default-jre-headless \
  && rm -rf /var/lib/apt/lists/*
+COPY --from=verapdf /opt/verapdf /opt/verapdf
 WORKDIR /app
-ENV NODE_ENV=production STORAGE_DIR=/data PORT=4000 APP_VERSION=${APP_VERSION}
+ENV NODE_ENV=production VERAPDF_BIN=/opt/verapdf/verapdf STORAGE_DIR=/data PORT=4000 APP_VERSION=${APP_VERSION}
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/packages/shared/package.json ./packages/shared/package.json

@@ -31,8 +31,8 @@ Legend: ✅ works end to end and tested · 🟡 partial · ⬜ not started
 | Compare PDFs | 🟡 | Text diff report (HTML, escaped). No visual diff. |
 | Repair PDF | 🟡 | Ghostscript rewrite; best-effort, with a structure sanity check so junk is reported as unrecoverable. |
 | Fill PDF forms | ⬜ | |
-| OCR | ⬜ | Tesseract is not installed in the dev environment, so it could not be built or tested. |
-| PDF → PDF/A | ⬜ | No validator available; will not claim compliance without one. |
+| OCR | 🟡 | Tesseract: pages are rendered, recognised (TSV word boxes) and the text is added as an **invisible layer** under the untouched scan (output pixels are identical to the input; verified on all four page rotations against the printed words' extent). Skips pages that already have text; reports mean confidence and warns when low; installed languages only (clear error otherwise). **Limits:** the layer uses a standard Latin font, so non-Latin scripts cannot be stored (replaced by `?`, with a warning); recognition accuracy depends on the scan; tested only with English on generated scans, not on real-world degraded scans, skewed pages or handwriting. No deskew/cleanup. |
+| PDF → PDF/A (1b/2b/3b) | 🟡 | Ghostscript `-dPDFA` with an sRGB output intent. **Verified with veraPDF**: outputs from LibreOffice, pdf-lib (non-embedded fonts) and a JavaScript-bearing source validate as PDF/A-1b, 2b and 3b in an independent veraPDF run. When `VERAPDF_BIN` is set the server runs veraPDF on every result and refuses to deliver a file that fails (reporting the failing clause); **without it the file is clearly marked "not independently validated"**, never as compliant. Converts only; it does not validate third-party PDF/A files. Removes encryption/JavaScript; metadata may not carry over. Not tested on very large, damaged or exotic-font documents. |
 | Standalone "View PDF" page | ⬜ | The workspace is a viewer, but there is no view-only route. |
 
 ## Platform
@@ -57,7 +57,7 @@ Legend: ✅ works end to end and tested · 🟡 partial · ⬜ not started
 | Admin dashboard | ✅ | Users, active users, jobs by state, queue, running (CPU-heavy) jobs, storage, system load; user management (role/plan/status); job list; usage chart; settings editor (limits, guest limits, prices, tools, retention, maintenance); audit log. Server-side role check on every endpoint. |
 | Teams / shared admin / centralized billing (Business) | ⬜ | The Business plan has higher limits only. |
 | Batch processing entitlement | ⬜ | Not implemented; not listed as a plan feature. |
-| Subscription for "OCR / advanced editing" entitlements | ⬜ | OCR doesn't exist yet; editing tools are not plan-gated by default (configurable per plan). |
+| Subscription for "OCR / advanced editing" entitlements | ⬜ | OCR and editing tools exist but are not plan-gated by default (configurable per plan). |
 | Mongo job store | ✅ | Job metadata persists across restarts (completed results stay downloadable; in-flight jobs are marked failed). |
 | Redis / BullMQ worker | ✅ | `QUEUE_DRIVER=bullmq`: API enqueues, `node apps/api/dist/worker.js` processes; priority, atomic claim, cross-process cancellation, heartbeat crash recovery. Tested against a real Redis. Needs shared storage volume. Object-storage (S3) backend: ⬜. |
 | Process isolation + kernel resource limits | ✅ | Per-job process group under `prlimit` (memory/CPU/file size), whole-job deadline, orphan cleanup. See docs/SECURITY.md. No seccomp/namespaces. |

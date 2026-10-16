@@ -92,6 +92,14 @@ export const optionSchemas = {
   }),
   'pdf-to-text': z.object({}).strict(),
   'pdf-to-html': z.object({}).strict(),
+  ocr: z.object({
+    /** Tesseract language code(s), e.g. "eng" or "eng+deu". Must be installed on the server. */
+    language: z.string().trim().regex(/^[A-Za-z_]{2,12}(\+[A-Za-z_]{2,12}){0,2}$/, 'Use language codes such as eng or eng+deu').default('eng'),
+    dpi: z.coerce.number().int().min(150).max(400).default(300),
+    /** Leave pages that already have a text layer untouched. */
+    skipTextPages: z.boolean().default(true),
+  }),
+  'pdf-to-pdfa': z.object({ level: z.enum(['1b', '2b', '3b']).default('2b') }),
   'pdf-to-word': z.object({}).strict(),
   'pdf-to-excel': z.object({}).strict(),
   'pdf-to-powerpoint': z.object({}).strict(),
@@ -231,6 +239,18 @@ export const TOOLS: ToolDefinition[] = [
     faq: [{ q: 'Is every slide editable?', a: 'Text-based pages import as editable text and shapes. Scanned pages stay as pictures.' }], related: ['pdf-to-word', 'pdf-to-images', 'pdf-to-excel'],
   },
   {
+    id: 'ocr', name: 'OCR PDF', category: 'more', status: 'available', popular: true,
+    short: 'Make a scanned PDF searchable.', description: 'Recognises the text on scanned pages with Tesseract and adds it as an invisible layer under the original image, so you can search, select and copy it while the page looks exactly the same. Pages that already contain text are left alone unless you turn that off.',
+    accept: ['pdf'], multiple: false, minFiles: 1, options: optionSchemas['ocr'],
+    faq: [{ q: 'Will my scan look different?', a: 'No. The original page image is kept untouched; the recognised text is added invisibly on top.' }, { q: 'How accurate is it?', a: 'It depends on scan quality. Clean, straight, 300 DPI scans of printed text work best. Handwriting, low resolution, skew and unusual fonts reduce accuracy; we report the average confidence and warn when it is low.' }, { q: 'Which languages work?', a: 'The languages installed on the server (English by default). Text is stored with a standard Latin font, so Latin-script languages work; characters outside it (Cyrillic, Greek, Arabic, CJK) cannot be stored and are replaced, which we warn about.' }, { q: 'Can I correct the text?', a: 'Not here. The result is a text layer you can search and copy from; fix recognition mistakes in your own tools if needed.' }], related: ['redact', 'pdf-to-text', 'compress'],
+  },
+  {
+    id: 'pdf-to-pdfa', name: 'PDF to PDF/A', category: 'convert', status: 'available',
+    short: 'Convert to archival PDF/A.', description: 'Rewrites the PDF as PDF/A (level B conformance) with embedded fonts and an sRGB colour profile using Ghostscript. When the server has the veraPDF validator, the result is checked against the standard and only delivered if it passes; otherwise it is marked as not independently validated.',
+    accept: ['pdf'], multiple: false, minFiles: 1, options: optionSchemas['pdf-to-pdfa'],
+    faq: [{ q: 'Is the result really PDF/A?', a: 'When the veraPDF validator is available we run it and only return files that pass, and the result says so. Without it, the file is produced with the same settings but is not independently checked, and we say that instead of claiming compliance.' }, { q: 'What is lost?', a: 'PDF/A forbids encryption, JavaScript, audio/video and external dependencies, so those are removed. Some metadata may not carry over. Interactive form fields may be flattened.' }, { q: 'Which level should I choose?', a: 'PDF/A-2b is the usual choice. PDF/A-1b is the strictest and oldest (no transparency); PDF/A-3b additionally permits embedded files.' }, { q: 'Does it validate an existing PDF/A?', a: 'No. This converts a PDF; it is not a compliance checker for third-party files.' }], related: ['compress', 'repair', 'protect'],
+  },
+  {
     id: 'office-to-pdf', name: 'Word, Excel, PowerPoint to PDF', category: 'convert', status: 'available', popular: true,
     short: 'Convert Office documents to PDF.', description: 'Converts DOC/DOCX, XLS/XLSX and PPT/PPTX to PDF with LibreOffice. Layout fidelity depends on fonts and features used; complex documents may differ from Microsoft Office rendering.',
     accept: ['office'], multiple: false, minFiles: 1, options: optionSchemas['office-to-pdf'],
@@ -324,7 +344,7 @@ export const TOOLS: ToolDefinition[] = [
     id: 'redact', name: 'Redact PDF', category: 'security', status: 'available',
     short: 'Permanently remove sensitive areas.', description: 'Draw boxes over sensitive content, or type words and phrases to find and cover everywhere they appear in the text layer. Pages with redactions are re-rendered as images with the boxes burned in, so the covered text and graphics are removed from the file, not just hidden. Redacted pages lose their selectable text.',
     accept: ['pdf', 'jpg', 'png'], multiple: true, minFiles: 1, options: optionSchemas['redact'],
-    faq: [{ q: 'Is the hidden content really gone?', a: 'Yes. Redacted pages are rasterized with the black boxes burned into the pixels and the original page content is discarded, so the text cannot be recovered from the file. Pages you did not redact are kept as they were.' }, { q: 'Why is text on redacted pages no longer selectable?', a: 'Because those pages become images. OCR is not available yet to restore a text layer.' }, { q: 'How does find-and-redact work?', a: 'We search the text layer of your PDF for each word or phrase (plain text, not patterns) and cover every match, including partial matches inside a longer word. Text that is part of a scanned image or drawn as graphics has no text layer and is not found, so draw boxes over those areas. If nothing matches we stop with an error instead of returning an unredacted copy.' }, { q: 'What about metadata?', a: 'The output is a new document: original metadata, bookmarks and attachments are not carried over.' }], related: ['protect', 'flatten', 'compress'],
+    faq: [{ q: 'Is the hidden content really gone?', a: 'Yes. Redacted pages are rasterized with the black boxes burned into the pixels and the original page content is discarded, so the text cannot be recovered from the file. Pages you did not redact are kept as they were.' }, { q: 'Why is text on redacted pages no longer selectable?', a: 'Because those pages become images. Run the result through the OCR PDF tool if you need a searchable text layer again.' }, { q: 'How does find-and-redact work?', a: 'We search the text layer of your PDF for each word or phrase (plain text, not patterns) and cover every match, including partial matches inside a longer word. Text that is part of a scanned image or drawn as graphics has no text layer and is not found, so draw boxes over those areas. If nothing matches we stop with an error instead of returning an unredacted copy.' }, { q: 'What about metadata?', a: 'The output is a new document: original metadata, bookmarks and attachments are not carried over.' }], related: ['protect', 'flatten', 'compress'],
   },
 ];
 
@@ -333,8 +353,6 @@ const planned = (id: string, name: string, category: ToolCategory, short: string
   id, name, category, short, description: short, status: 'planned', accept: ['pdf'], multiple: false, minFiles: 1, faq: [], related: [],
 });
 export const PLANNED_TOOLS: ToolDefinition[] = [
-  planned('ocr', 'OCR PDF', 'more', 'Make scanned PDFs searchable (needs Tesseract).'),
-  planned('pdf-to-pdfa', 'PDF to PDF/A', 'convert', 'Archival PDF (needs a validator before we can claim compliance).'),
   planned('fill-forms', 'Fill PDF forms', 'edit', 'Fill AcroForm fields.'),
 ];
 

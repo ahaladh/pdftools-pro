@@ -124,7 +124,7 @@ describe('validation', () => {
     expect((await request(ctx.app).post('/api/pdf/hack').attach('files', await pdf(1), 'a.pdf')).status).toBe(404);
   });
   it('returns 501 for planned tools, never fake success', async () => {
-    const r = await request(ctx.app).post('/api/pdf/ocr').attach('files', await pdf(1), 'a.pdf');
+    const r = await request(ctx.app).post('/api/pdf/fill-forms').attach('files', await pdf(1), 'a.pdf');
     expect(r.status).toBe(501);
   });
   it('validates options server-side', async () => {
@@ -382,4 +382,58 @@ describe('edit existing text and images over HTTP', () => {
     expect(job.state).toBe('failed');
     expect(job.error.code).toBe('text_not_found');
   });
+});
+
+describe('OCR and PDF/A over HTTP (need tesseract / veraPDF; skipped without them)', async () => {
+  const { execFileSync } = await import('node:child_process');
+  const { engineEnv } = await import('@pdftools/pdf-core');
+  const works = (bin: string | undefined, args: string[]) => { try { if (!bin) return false; execFileSync(bin, args, { stdio: 'ignore', env: engineEnv(tmpdir()) }); return true; } catch { return false; } };
+  const haveOcr = works('tesseract', ['--version']);
+  const haveVera = works(process.env.VERAPDF_BIN, ['--version']);
+  if (process.env.CI && !(haveOcr && haveVera)) throw new Error('tesseract and veraPDF are required in CI');
+  if (!haveOcr || !haveVera) console.warn(`\n⚠ API OCR/PDF-A tests partly skipped (tesseract: ${haveOcr}, veraPDF: ${haveVera})\n`);
+  const bytes = (a: ReturnType<typeof request.agent>, url: string) => a.get(url).buffer(true).parse((res, cb) => { const c: Buffer[] = []; res.on('data', (x) => c.push(x)); res.on('end', () => cb(null, Buffer.concat(c))); });
+
+  async function scanned() {
+    const { readFileSync, writeFileSync } = await import('node:fs');
+    const img = join(storage, 'scan.png');
+    execFileSync('convert', ['-size', '1500x600', 'xc:white', '-font', 'DejaVu-Sans', '-pointsize', '64', '-fill', 'black', '-annotate', '+60+130', 'Invoice 12345 total', '-colorspace', 'Gray', `png:${img}`]);
+    const d = await PDFDocument.create();
+    const p = d.addPage([360, 144]);
+    p.drawImage(await d.embedPng(readFileSync(img)), { x: 0, y: 0, width: 360, height: 144 });
+    writeFileSync(join(storage, 'scan.pdf'), await d.save());
+    return Buffer.from(await d.save());
+  }
+
+  it.skipIf(!haveOcr)('OCR returns a searchable PDF (through the isolated job process)', async () => {
+    const { writeFileSync } = await import('node:fs');
+    const a = request.agent(ctx.app);
+    const sub = await a.post('/api/pdf/ocr').field('options', JSON.stringify({ language: 'eng' })).attach('files', await scanned(), 'scan.pdf');
+    expect(sub.status).toBe(202);
+    const job = await waitDone(a, sub.body.data.jobId);
+    expect(job.state, JSON.stringify(job.error)).toBe('completed');
+    expect(job.stats.pagesRecognised).toBe(1);
+    const path = join(storage, 'ocr-out.pdf'); writeFileSync(path, (await bytes(a, job.result.downloadUrl)).body);
+    expect(execFileSync('pdftotext', [path, '-']).toString().replace(/\s+/g, ' ')).toContain('Invoice 12345 total');
+  }, 60_000);
+
+  it.skipIf(!haveOcr)('OCR with an unavailable language fails with a message naming the available ones', async () => {
+    const a = request.agent(ctx.app);
+    const sub = await a.post('/api/pdf/ocr').field('options', JSON.stringify({ language: 'xxx' })).attach('files', await scanned(), 'scan.pdf');
+    const job = await waitDone(a, sub.body.data.jobId);
+    expect(job.state).toBe('failed');
+    expect(job.error.code).toBe('language_unavailable');
+    expect(job.error.message).toContain('eng');
+  }, 60_000);
+
+  it.skipIf(!haveVera)('PDF/A is delivered with a validation statement', async () => {
+    const a = request.agent(ctx.app);
+    const sub = await a.post('/api/pdf/pdf-to-pdfa').field('options', JSON.stringify({ level: '2b' })).attach('files', await pdf(1), 'doc.pdf');
+    expect(sub.status).toBe(202);
+    const job = await waitDone(a, sub.body.data.jobId);
+    expect(job.state, JSON.stringify(job.error)).toBe('completed');
+    expect(job.stats.validated).toBe('veraPDF');
+    expect(job.warnings.join(' ')).toMatch(/conforms to PDF\/A-2b/);
+    expect(job.result.name).toBe('doc-pdfa.pdf');
+  }, 90_000);
 });

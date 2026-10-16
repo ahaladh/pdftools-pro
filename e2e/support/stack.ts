@@ -21,10 +21,14 @@ export const readState = (): StackState => JSON.parse(readFileSync(STATE, 'utf8'
 
 const procs: { mongo?: MongoMemoryServer; redis?: RedisMemoryServer; api?: ChildProcess; worker?: ChildProcess; web?: ChildProcess } = {};
 
+/** Optional-engine settings the API and worker need to find Tesseract / veraPDF (same list the engines allow through). */
+const ENGINE_VARS = ['PDFTOOLS_BIN_DIR', 'TESSDATA_PREFIX', 'LD_LIBRARY_PATH', 'VERAPDF_BIN', 'GS_ICC_PROFILE', 'JAVA_HOME'];
+const engineEnv = () => Object.fromEntries(ENGINE_VARS.filter((k) => process.env[k]).map((k) => [k, process.env[k]!]));
+
 function launch(name: string, cmd: string, args: string[], env: Record<string, string>, cwd: string): ChildProcess {
   mkdirSync(LOGS, { recursive: true });
   const out = createWriteStream(join(LOGS, `${name}.log`));
-  const p = spawn(cmd, args, { cwd, env: { ...env, PATH: process.env.PATH ?? '' }, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+  const p = spawn(cmd, args, { cwd, env: { ...env, ...engineEnv(), PATH: process.env.PATH ?? '' }, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
   p.stdout?.pipe(out); p.stderr?.pipe(out);
   return p;
 }

@@ -16,9 +16,21 @@ export interface RunOptions {
   timeoutMs: number;
   signal?: AbortSignal;
   limits?: EngineLimits;
+  /** Extra environment for this one engine (never user-controlled). */
+  env?: Record<string, string>;
 }
 
 const PRLIMIT = '/usr/bin/prlimit';
+
+/** Variables engines may need that are configuration, not secrets. Everything else in the server's environment stays out. */
+const PASSTHROUGH = ['PDFTOOLS_BIN_DIR', 'TESSDATA_PREFIX', 'LD_LIBRARY_PATH', 'VERAPDF_BIN', 'GS_ICC_PROFILE', 'JAVA_HOME'] as const;
+/** Minimal environment for engine processes: fixed PATH (plus an optional admin-chosen bin dir) and the allow-listed settings above. */
+export function engineEnv(home: string): NodeJS.ProcessEnv {
+  const extra = process.env.PDFTOOLS_BIN_DIR;
+  const env: NodeJS.ProcessEnv = { OMP_THREAD_LIMIT: '1', PATH: `${extra ? `${extra}:` : ''}/usr/local/bin:/usr/bin:/bin`, HOME: home, LANG: 'C.UTF-8' };
+  for (const k of PASSTHROUGH) if (process.env[k]) env[k] = process.env[k];
+  return env;
+}
 let prlimitOk: boolean | undefined;
 const hasPrlimit = () => (prlimitOk ??= (() => { try { accessSync(PRLIMIT, constants.X_OK); return true; } catch { return false; } })());
 
@@ -37,6 +49,13 @@ export function limitArgs(l: EngineLimits): string[] {
  * Never interpolates user input into a shell string.
  */
 export function run(bin: string, args: string[], opts: RunOptions): Promise<void> {
+  return exec(bin, args, opts).then(() => undefined);
+}
+
+/** Like `run` but resolves with the engine's stdout (capped at 1 MB). */
+export function runCapture(bin: string, args: string[], opts: RunOptions): Promise<string> { return exec(bin, args, opts); }
+
+function exec(bin: string, args: string[], opts: RunOptions): Promise<string> {
   let file = bin, argv = args;
   const lim = opts.limits ? limitArgs(opts.limits) : [];
   if (lim.length) {
@@ -53,11 +72,11 @@ export function run(bin: string, args: string[], opts: RunOptions): Promise<void
         timeout: opts.timeoutMs,
         killSignal: 'SIGKILL',
         maxBuffer: 1024 * 1024,
-        env: { PATH: '/usr/local/bin:/usr/bin:/bin', HOME: opts.cwd, LANG: 'C.UTF-8' },
+        env: { ...engineEnv(opts.cwd), ...opts.env },
         signal: opts.signal,
       },
-      (err, _stdout, stderr) => {
-        if (!err) return resolve();
+      (err, stdout, stderr) => {
+        if (!err) return resolve(String(stdout));
         if (opts.signal?.aborted) return reject(new ToolError('cancelled', 'Job was cancelled'));
         const e0 = err as NodeJS.ErrnoException & { killed?: boolean; signal?: string };
         if (e0.killed && e0.signal === 'SIGKILL') return reject(new ToolError('timeout', 'Processing took too long and was stopped'));
@@ -69,6 +88,7 @@ export function run(bin: string, args: string[], opts: RunOptions): Promise<void
         // Do not leak stderr (may contain paths) to users; keep it for server logs.
         const e = new ToolError('engine_failed', 'The PDF engine could not process this file. It may be damaged or unsupported.');
         (e as Error & { detail?: string }).detail = String(stderr).slice(0, 500);
+        (e as Error & { stdout?: string }).stdout = String(stdout); // some tools (veraPDF) report results on stdout AND exit non-zero
         reject(e);
       },
     );

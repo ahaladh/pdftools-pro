@@ -11,7 +11,7 @@ const PPTX = 'application/vnd.openxmlformats-officedocument.presentationml.prese
 const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 /** Text-layer check: converting a scan produces pictures, not editable text, and the user should be told. */
-async function textPerPage(ctx: Parameters<Processor>[0], pdf: string, pageCount: number): Promise<string[]> {
+export async function textPerPage(ctx: Parameters<Processor>[0], pdf: string, pageCount: number): Promise<string[]> {
   const out = join(ctx.workDir, 'layout.txt');
   await runEngine(ctx, 'pdftotext', ['-layout', '-enc', 'UTF-8', pdf, out]);
   const pages = (await readFile(out, 'utf8')).split('\f');
@@ -20,7 +20,7 @@ async function textPerPage(ctx: Parameters<Processor>[0], pdf: string, pageCount
   return pages;
 }
 
-const NO_TEXT = 'No text layer was found. This looks like a scanned PDF, so the result contains pictures rather than editable text. OCR is not available yet.';
+const NO_TEXT = 'No text layer was found. This looks like a scanned PDF, so the result contains pictures rather than editable text. Run it through the OCR PDF tool first.';
 
 /** LibreOffice imports the PDF into Draw/Writer/Impress and exports the target format. */
 async function viaLibreOffice(ctx: Parameters<Processor>[0], pdf: string, infilter: string, ext: 'docx' | 'pptx'): Promise<string> {
@@ -109,7 +109,7 @@ const pdfToExcel: Processor = async (ctx) => {
   const f = one(ctx);
   const doc = await loadPdfFile(f.path, ctx.maxPages);
   const text = await textPerPage(ctx, f.path, doc.getPageCount());
-  if (text.every((t) => t.trim() === '')) throw new ToolError('no_text', 'No text layer was found. This looks like a scanned PDF, and OCR is not available yet, so there is nothing to put in a spreadsheet.');
+  if (text.every((t) => t.trim() === '')) throw new ToolError('no_text', 'No text layer was found. This looks like a scanned PDF, so there is nothing to put in a spreadsheet. Run it through the OCR PDF tool first.');
   // Pages with no text still get a sheet so sheet numbers match page numbers.
   const sheets = text.map((t, i) => ({ name: `Page ${i + 1}`, rows: rowsOf(t) }));
   const path = join(ctx.workDir, 'result.xlsx');

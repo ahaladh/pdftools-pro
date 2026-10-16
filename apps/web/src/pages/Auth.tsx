@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { forgotSchema, loginSchema, registerSchema, resetSchema } from '@pdftools/shared';
+import { LogoMark } from '@/components/Logo';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Field, TextInput } from '@/features/tools/fields';
@@ -14,11 +15,16 @@ import { safeNext } from '@/lib/safeNext';
 
 function Shell({ title, subtitle, children, footer }: { title: string; subtitle?: string; children: ReactNode; footer?: ReactNode }) {
   return (
-    <div className="mx-auto max-w-md px-4 py-16">
-      <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
-      {subtitle && <p className="mt-1 text-sm text-slate-600">{subtitle}</p>}
-      <Card className="mt-6 p-6">{children}</Card>
-      {footer && <p className="mt-4 text-center text-sm text-slate-600">{footer}</p>}
+    <div className="bg-gradient-to-b from-brand-50/80 via-white to-white">
+      <div className="mx-auto max-w-md px-4 py-16 sm:py-20">
+        <div className="text-center">
+          <LogoMark className="mx-auto h-12 w-12 drop-shadow-[0_8px_16px_rgb(79_70_229/0.35)]" />
+          <h1 className="mt-5 text-3xl font-bold tracking-tight">{title}</h1>
+          {subtitle && <p className="mt-2 text-sm text-slate-600">{subtitle}</p>}
+        </div>
+        <Card className="mt-8 p-7 shadow-[var(--shadow-lift)]">{children}</Card>
+        {footer && <p className="mt-5 text-center text-sm text-slate-600">{footer}</p>}
+      </div>
     </div>
   );
 }

@@ -18,6 +18,8 @@
   <url><loc>http://localhost:4173/pdf-to-word</loc></url>
   <url><loc>http://localhost:4173/pdf-to-excel</loc></url>
   <url><loc>http://localhost:4173/pdf-to-powerpoint</loc></url>
+  <url><loc>http://localhost:4173/ocr</loc></url>
+  <url><loc>http://localhost:4173/pdf-to-pdfa</loc></url>
   <url><loc>http://localhost:4173/office-to-pdf</loc></url>
   <url><loc>http://localhost:4173/protect</loc></url>
   <url><loc>http://localhost:4173/unlock</loc></url>

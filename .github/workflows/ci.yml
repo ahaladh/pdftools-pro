@@ -45,7 +45,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ghostscript poppler-utils imagemagick util-linux \
-            libreoffice-writer libreoffice-calc libreoffice-impress fonts-liberation python3
+            libreoffice-writer libreoffice-calc libreoffice-impress fonts-liberation python3 \
+            tesseract-ocr tesseract-ocr-eng default-jre-headless
+      - name: veraPDF (PDF/A validator; the OCR/PDF-A tests are mandatory in CI)
+        run: infrastructure/scripts/dev-engines.sh | sed -e 's/^export //' -e 's/"//g' >> "$GITHUB_ENV"
       - name: MongoDB database tools (backup/restore drill)
         run: |
           curl -fsSL -o /tmp/mdbtools.tgz https://fastdl.mongodb.org/tools/db/mongodb-database-tools-ubuntu2204-x86_64-100.10.0.tgz
@@ -74,7 +77,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ghostscript poppler-utils imagemagick util-linux nginx \
-            libreoffice-writer libreoffice-calc libreoffice-impress fonts-liberation python3
+            libreoffice-writer libreoffice-calc libreoffice-impress fonts-liberation python3 \
+            tesseract-ocr tesseract-ocr-eng default-jre-headless
+          infrastructure/scripts/dev-engines.sh | sed -e 's/^export //' -e 's/"//g' >> "$GITHUB_ENV"
           sudo systemctl disable --now nginx   # the tests start their own nginx instances
           echo "NGINX_BIN=$(command -v nginx)" >> "$GITHUB_ENV"
           curl -fsSL https://github.com/caddyserver/caddy/releases/download/v2.8.4/caddy_2.8.4_linux_amd64.tar.gz | sudo tar xz -C /usr/local/bin caddy

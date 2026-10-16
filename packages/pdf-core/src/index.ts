@@ -6,4 +6,4 @@ export { run } from './exec.js';
 export { pageMapper } from './tools3.js';
 export * from './isolated.js';
 export type { EngineLimits } from './exec.js';
-export { limitArgs } from './exec.js';
+export { limitArgs, engineEnv } from './exec.js';

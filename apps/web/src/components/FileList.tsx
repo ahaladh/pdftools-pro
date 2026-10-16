@@ -31,13 +31,13 @@ export function FileList({ files, onChange, sortable, disabled }: Props) {
           onDragOver={(e) => { if (dragFrom !== null) { e.preventDefault(); setDragOver(i); } }}
           onDrop={() => { if (dragFrom !== null) move(dragFrom, i); setDragFrom(null); setDragOver(null); }}
           onDragEnd={() => { setDragFrom(null); setDragOver(null); }}
-          className={cn('flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2', dragOver === i && dragFrom !== i && 'border-brand-500 bg-brand-50')}
+          className={cn('flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 shadow-[var(--shadow-soft)]', dragOver === i && dragFrom !== i && 'border-brand-500 bg-brand-50')}
         >
           {sortable && <GripVertical className="h-4 w-4 shrink-0 cursor-grab text-slate-400" aria-hidden="true" />}
-          <FileIcon className="h-5 w-5 shrink-0 text-brand-600" aria-hidden="true" />
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-50 text-brand-600 ring-1 ring-inset ring-brand-100"><FileIcon className="h-5 w-5" aria-hidden="true" /></span>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium text-slate-900">{f.name}</p>
-            <p className="text-xs text-slate-500">{formatBytes(f.size)}</p>
+            <p className="text-xs text-slate-600">{formatBytes(f.size)}</p>
           </div>
           {sortable && (
             <>

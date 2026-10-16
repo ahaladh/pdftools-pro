@@ -3,12 +3,12 @@ import { forwardRef, type ButtonHTMLAttributes } from 'react';
 import { cn } from '@/lib/utils';
 
 const button = cva(
-  'inline-flex items-center justify-center gap-2 rounded-xl font-medium transition-colors disabled:pointer-events-none disabled:opacity-50',
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-xl font-medium transition-all duration-150 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50',
   {
     variants: {
       variant: {
-        primary: 'bg-brand-600 text-white shadow-sm hover:bg-brand-700',
-        secondary: 'border border-slate-200 bg-white text-slate-800 hover:bg-slate-50',
+        primary: 'bg-gradient-to-b from-brand-500 to-brand-600 text-white shadow-[0_1px_0_rgb(255_255_255/0.2)_inset,0_6px_16px_-6px_rgb(79_70_229/0.7)] hover:from-brand-600 hover:to-brand-700 hover:shadow-[0_1px_0_rgb(255_255_255/0.2)_inset,0_10px_24px_-8px_rgb(79_70_229/0.8)]',
+        secondary: 'border border-slate-200 bg-white text-slate-800 shadow-sm hover:border-slate-300 hover:bg-slate-50',
         ghost: 'text-slate-700 hover:bg-slate-100',
         danger: 'text-red-600 hover:bg-red-50',
       },

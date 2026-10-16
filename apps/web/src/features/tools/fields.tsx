@@ -4,14 +4,14 @@ import { cn } from '@/lib/utils';
 export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-sm font-medium text-slate-800">{label}</span>
+      <span className="mb-1.5 block text-sm font-medium text-slate-800">{label}</span>
       {children}
-      {hint && <span className="mt-1 block text-xs text-slate-500">{hint}</span>}
+      {hint && <span className="mt-1.5 block text-xs leading-relaxed text-slate-600">{hint}</span>}
     </label>
   );
 }
 
-const base = 'w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm placeholder:text-slate-500';
+const base = 'w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm shadow-sm transition-shadow placeholder:text-slate-500 hover:border-slate-400 focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15';
 // forwardRef is required: react-hook-form attaches its ref to these inputs.
 export const TextInput = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(({ className, ...p }, ref) => <input ref={ref} className={cn(base, className)} {...p} />);
 TextInput.displayName = 'TextInput';
@@ -23,9 +23,9 @@ export function Radio<T extends string>({ name, value, onChange, options }: { na
     <fieldset className="space-y-2">
       <legend className="sr-only">{name}</legend>
       {options.map((o) => (
-        <label key={o.value} className={cn('flex cursor-pointer items-start gap-3 rounded-xl border p-3', value === o.value ? 'border-brand-500 bg-brand-50' : 'border-slate-200 hover:bg-slate-50')}>
-          <input type="radio" name={name} className="mt-1" checked={value === o.value} onChange={() => onChange(o.value)} />
-          <span><span className="block text-sm font-medium text-slate-900">{o.label}</span>{o.desc && <span className="block text-xs text-slate-500">{o.desc}</span>}</span>
+        <label key={o.value} className={cn('flex cursor-pointer items-start gap-3 rounded-xl border p-3.5 transition-colors', value === o.value ? 'border-brand-500 bg-brand-50 shadow-[0_0_0_3px_rgb(99_102_241/0.12)]' : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50')}>
+          <input type="radio" name={name} className="mt-1 accent-brand-600" checked={value === o.value} onChange={() => onChange(o.value)} />
+          <span><span className="block text-sm font-medium text-slate-900">{o.label}</span>{o.desc && <span className="block text-xs text-slate-600">{o.desc}</span>}</span>
         </label>
       ))}
     </fieldset>

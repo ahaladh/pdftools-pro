@@ -41,6 +41,7 @@ for (const line of lines) {
 }
 const subst = (s, env) => s.replace(/\$\{(\w+)(?::[-?][^}]*)?\}|\$(\w+)/g, (_, a, b) => env[a ?? b] ?? '');
 
+const EXTERNAL_STAGES = new Set(['verapdf']);
 const roots = {}; const envs = {}; const wds = {};
 rmSync(out, { recursive: true, force: true });
 const log = (...a) => console.log('[sim]', ...a);
@@ -59,6 +60,8 @@ function runStage(st) {
       const toks = subst(arg, env).split(/\s+/); let from = null;
       if (toks[0].startsWith('--from=')) from = toks.shift().slice(7);
       const dest = toks.pop(); const srcs = toks;
+      // Stages whose content comes from a network download + installer cannot be simulated; their COPY is skipped, not faked.
+      if (from && EXTERNAL_STAGES.has(from)) { log(`skip COPY --from=${from} (external download, not simulated)`); continue; }
       const absDest = dest.startsWith('/') ? dest : join(wd, dest);
       const destIsDir = dest.endsWith('/') || srcs.length > 1 || dest === '.';
       for (const s of srcs) {

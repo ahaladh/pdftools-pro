@@ -3,7 +3,7 @@ import { accessSync, constants, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { ToolId } from '@pdftools/shared';
 import { ToolError } from './errors.js';
-import { limitArgs } from './exec.js';
+import { engineEnv, limitArgs } from './exec.js';
 import { processTool } from './processors.js';
 import type { ProcessContext, ProcessResult } from './types.js';
 
@@ -48,7 +48,7 @@ export function processToolIsolated(tool: ToolId, ctx: ProcessContext, iso: Isol
       stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
       detached: true, // own process group so we can kill engines too
       cwd: ctx.workDir,
-      env: { PATH: '/usr/local/bin:/usr/bin:/bin', HOME: ctx.workDir, LANG: 'C.UTF-8' },
+      env: engineEnv(ctx.workDir),
     });
     let stderr = '';
     child.stderr?.on('data', (d: Buffer) => { stderr = (stderr + d.toString()).slice(-2000); });

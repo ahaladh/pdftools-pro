@@ -161,6 +161,7 @@ Alert: `PdfToolsStorageNearlyFull`. Results are deleted at retention; inputs imm
 ## Capacity and tuning
 
 * Throughput scales with workers × `WORKER_CONCURRENCY`; each running job may use up to `ISOLATION_MEMORY_MB` of address space (typically far less) and one CPU for most tools.
+* OCR is CPU-heavy: roughly 1–3 s per page at 300 DPI and one core per job (`OMP_THREAD_LIMIT=1` is set for Tesseract). The PDF/A validator starts a JVM per job (a few seconds, capped at 512 MB heap so it fits the kernel memory limit); expect PDF/A jobs to take 3–6 s even for tiny files.
 * Per-plan limits (file size, pages, daily operations, retention, priority) are runtime settings in the admin UI; `MAX_STORAGE_MB` protects the disk globally.
 * nginx caps request bodies at `1g` for `/api/pdf/` and rate-limits per IP (`pdf_upload` 30/min burst 20, `pdf_auth` 30/min burst 10, `pdf_api` 600/min burst 200); raise them if many users share one IP (offices, universities, mobile carriers).
 * Behind any proxy or load balancer set `TRUST_PROXY` to the number of proxies, or every visitor shares one IP for quotas.
