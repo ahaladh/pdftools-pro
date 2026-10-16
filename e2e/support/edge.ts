@@ -23,7 +23,7 @@ export function startEdge(opts: { apiAddr: string; httpPort: number; httpsPort: 
   const site = join(dir, 'site.conf'); writeFileSync(site, rendered);
   const mime = [join(dirname(NGINX), '../conf/mime.types'), '/etc/nginx/mime.types'].find(existsSync)!;
   const conf = join(dir, 'nginx.conf');
-  writeFileSync(conf, `worker_processes 1;\npid ${dir}/nginx.pid;\nerror_log ${errorLog} info;\nevents { worker_connections 256; }\nhttp {\n  include ${mime};\n  default_type application/octet-stream;\n  client_body_temp_path ${dir}/body;\n  proxy_temp_path ${dir}/proxy;\n  fastcgi_temp_path ${dir}/fcgi;\n  uwsgi_temp_path ${dir}/uwsgi;\n  scgi_temp_path ${dir}/scgi;\n  include "${site}";\n}\n`);
+  writeFileSync(conf, `worker_processes 1;\npid ${dir}/nginx.pid;\nerror_log ${errorLog} info;\nevents { worker_connections 256; }\nhttp {\n  # Packaged nginx builds default to /var/log/nginx/access.log, which an unprivileged test run cannot open.\n  access_log ${dir}/default-access.log;\n  include ${mime};\n  default_type application/octet-stream;\n  client_body_temp_path ${dir}/body;\n  proxy_temp_path ${dir}/proxy;\n  fastcgi_temp_path ${dir}/fcgi;\n  uwsgi_temp_path ${dir}/uwsgi;\n  scgi_temp_path ${dir}/scgi;\n  include "${site}";\n}\n`);
   const args = ['-p', dir, '-c', conf];
   const test = () => { try { execFileSync(NGINX, [...args, '-t'], { stdio: 'pipe' }); return 'ok'; } catch (e) { return String((e as { stderr?: Buffer }).stderr ?? e); } };
   const proc: ChildProcess = spawn(NGINX, [...args, '-g', 'daemon off;'], { stdio: 'ignore', detached: true });
@@ -56,7 +56,7 @@ export function startChain(opts: { apiAddr: string; nginxPort: number; caddyPort
   const site = join(dir, 'site.conf'); writeFileSync(site, conf);
   const mime = [join(dirname(NGINX), '../conf/mime.types'), '/etc/nginx/mime.types'].find(existsSync)!;
   const main = join(dir, 'nginx.conf');
-  writeFileSync(main, `worker_processes 1;\npid ${dir}/nginx.pid;\nerror_log ${dir}/error.log info;\nevents { worker_connections 256; }\nhttp {\n  include ${mime};\n  default_type application/octet-stream;\n  client_body_temp_path ${dir}/body;\n  proxy_temp_path ${dir}/proxy;\n  fastcgi_temp_path ${dir}/fcgi;\n  uwsgi_temp_path ${dir}/uwsgi;\n  scgi_temp_path ${dir}/scgi;\n  include "${site}";\n}\n`);
+  writeFileSync(main, `worker_processes 1;\npid ${dir}/nginx.pid;\nerror_log ${dir}/error.log info;\nevents { worker_connections 256; }\nhttp {\n  # Packaged nginx builds default to /var/log/nginx/access.log, which an unprivileged test run cannot open.\n  access_log ${dir}/default-access.log;\n  include ${mime};\n  default_type application/octet-stream;\n  client_body_temp_path ${dir}/body;\n  proxy_temp_path ${dir}/proxy;\n  fastcgi_temp_path ${dir}/fcgi;\n  uwsgi_temp_path ${dir}/uwsgi;\n  scgi_temp_path ${dir}/scgi;\n  include "${site}";\n}\n`);
   execFileSync(NGINX, ['-p', dir, '-c', main, '-t'], { stdio: 'pipe' });
   const ng = spawn(NGINX, ['-p', dir, '-c', main, '-g', 'daemon off;'], { stdio: 'ignore', detached: true });
   const cd = spawn(CADDY, ['run', '--config', join(ROOT, 'infrastructure/caddy/Caddyfile'), '--adapter', 'caddyfile'], {
