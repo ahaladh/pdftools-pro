@@ -25,7 +25,7 @@
 - **Open redirects**: `?next=` after sign-in is validated to same-site absolute paths; React Router was upgraded to a patched major.
 - **Password reset**: single-use, 1-hour token, only its hash stored; all sessions revoked on reset or password change.
 - **Multiple instances**: API replicas and workers can share one MongoDB, Redis and storage volume. Startup no longer wipes or fails anything: unknown directories are removed only after a 10-minute grace period, and crashed work is recovered by the heartbeat reaper (see Phase 7). (Earlier versions required exactly one instance per storage volume.)
-- **Known gaps**: no email verification, no 2FA, no per-account storage quota, audit log has no integrity protection, admin settings changes are not versioned.
+- **Known gaps**: no per-account storage quota, audit log has no integrity protection, admin settings changes are not versioned.
 
 ## Phase 7 additions (isolation, abuse resistance, verification)
 **Defence in depth for untrusted documents** — each layer assumes the previous one failed:
@@ -52,3 +52,16 @@
 - **Images**: production dependencies only (no TypeScript, test runners, browsers), non-root user, `tini` as PID 1 (signal forwarding, zombie reaping from engine children), `.dockerignore` keeps `.env`, `.git`, tests and local data out of the build context, read-only root filesystem and dropped capabilities in compose.
 - **Backups contain sensitive data** (password hashes, emails, audit log). `backup.sh` writes `0600` files, keeps the database URI out of the process list, verifies a checksum on restore; **encrypt and copy them off-host** (the scripts do not encrypt).
 - **Remaining gaps**: no WAF; no antivirus scan of uploads; no seccomp/namespace sandbox for the engines beyond rlimits and container/systemd settings; certificate pinning/CT monitoring not set up; Prometheus alert delivery is yours to configure.
+
+## Phase 9 additions (account hardening)
+
+- **Email confirmation.** Registration emails a single-use link (24 h; only a SHA-256 of the token is stored; a newer link replaces the older one; resend is limited to one per minute). Finishing a password reset also confirms the address, since the reset link went to that inbox. `REQUIRE_VERIFIED_EMAIL=true` stops an unconfirmed address from starting a paid checkout. Nothing else is gated: unconfirmed users can still use the free tools.
+- **Two-step sign-in (TOTP, RFC 6238).** Implemented with Node's crypto (no dependency) and checked against the RFC's published test vectors. Setup needs the password; the secret is shown once with a QR code and does nothing until a code from the app proves it works. A correct password then yields only a 5-minute challenge token (its own audience, so it can never act as an access token); no session or cookie exists until the second factor is accepted.
+  - *Brute force:* wrong codes count toward the same 5-strike, 15-minute lockout as wrong passwords, on top of the per-IP rate limit.
+  - *Replay:* a TOTP time step is accepted once, enforced by an atomic database update, so the same code used in parallel succeeds exactly once. The same holds for recovery codes.
+  - *Recovery codes:* 10 random codes (~49 bits each), stored only as hashes, shown once, single-use; regenerating invalidates the old set.
+  - *Secrets at rest:* AES-256-GCM, key derived (HKDF) from `TWO_FACTOR_KEY`, or from `JWT_ACCESS_SECRET` if unset. **Set `TWO_FACTOR_KEY` in production:** otherwise rotating the JWT secret makes every authenticator secret undecryptable and locks all 2FA users out. There is no key-rotation tool yet.
+  - Turning 2FA on or off, and regenerating recovery codes, re-ask for the password (and a code where it matters) and sign every other device out.
+- **Devices.** Users can see where they are signed in (browser and OS from the user-agent; no IP address is stored) and sign devices out remotely, individually or all but the current one. The device list never exposes token material.
+- **Admin reset.** For a user who lost both phone and recovery codes, an administrator can turn off their 2FA. It signs them out everywhere and is written to the audit log with the acting admin. **Verify the person's identity first**: this is the account-recovery path an attacker would target, so the UI asks for confirmation.
+- **Not done:** hardware keys / WebAuthn, SMS codes (deliberately omitted: SIM-swap risk), trusted-device "remember me", forcing 2FA for admins, and breach-password checks. Teams/shared billing, batch entitlement and Razorpay are product features, not part of this phase.

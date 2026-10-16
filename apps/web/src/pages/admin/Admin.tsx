@@ -91,6 +91,7 @@ function Users() {
   const [search, setSearch] = useState('');
   const [applied, setApplied] = useState('');
   const q = useQuery({ queryKey: ['admin-users', page, applied], queryFn: () => api.admin.users({ page, q: applied || undefined }) });
+  const reset2fa = useMutation({ mutationFn: (id: string) => api.admin.resetTwoFactor(id), onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-users'] }) });
   const upd = useMutation({ mutationFn: (v: { id: string; patch: Parameters<typeof api.admin.updateUser>[1] }) => api.admin.updateUser(v.id, v.patch), onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-users'] }) });
   return (
     <div>
@@ -100,7 +101,7 @@ function Users() {
       </form>
       <ErrorBox e={q.error ?? upd.error} />
       <div className="mt-3 overflow-x-auto"><table className="w-full text-left text-sm">
-        <thead className="text-xs uppercase text-slate-500"><tr><th className="py-2">Email</th><th>Role</th><th>Plan</th><th>Status</th><th>Last login</th><th>Joined</th></tr></thead>
+        <thead className="text-xs uppercase text-slate-500"><tr><th className="py-2">Email</th><th>Role</th><th>Plan</th><th>Status</th><th>Last login</th><th>Joined</th><th>2-step</th></tr></thead>
         <tbody>{q.data?.rows.map((u) => (
           <tr key={u.id} className="border-t border-slate-100">
             <td className="py-2 pr-3">{u.email}{u.subscription && <span className="ml-2 rounded bg-slate-100 px-1.5 text-[10px]">{u.subscription.status}</span>}</td>
@@ -109,6 +110,9 @@ function Users() {
             <td><Select aria-label={`Status for ${u.email}`} value={u.status} onChange={(e) => upd.mutate({ id: u.id, patch: { status: e.target.value as 'active' | 'disabled' } })}><option>active</option><option>disabled</option></Select></td>
             <td className="px-2">{u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString() : '—'}</td>
             <td>{new Date(u.createdAt).toLocaleDateString()}</td>
+            <td className="pl-2">{u.twoFactorEnabled
+              ? <Button size="sm" variant="secondary" aria-label={`Reset two-step verification for ${u.email}`} disabled={reset2fa.isPending} onClick={() => { if (window.confirm(`Turn off two-step verification for ${u.email} and sign them out everywhere? Do this only after confirming their identity.`)) reset2fa.mutate(u.id); }}>Reset</Button>
+              : <span className="text-xs text-slate-500">off</span>}</td>
           </tr>))}</tbody>
       </table></div>
       {q.data && <Pager page={page} total={q.data.total} size={q.data.pageSize} onPage={setPage} />}

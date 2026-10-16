@@ -12,6 +12,21 @@ const userSchema = new Schema({
   lastLoginAt: { type: Date },
   resetTokenHash: { type: String },
   resetTokenExpires: { type: Date },
+  /** Set when the user clicks the link we emailed (or completes a password reset, which proves the same thing). */
+  emailVerifiedAt: { type: Date },
+  verifyTokenHash: { type: String },
+  verifyTokenExpires: { type: Date },
+  verifySentAt: { type: Date },
+  /** Two-factor sign-in (TOTP). The secret is AES-GCM encrypted; recovery codes are stored only as hashes. */
+  twoFactor: {
+    secretEnc: String,
+    enabledAt: Date,
+    /** Last accepted TOTP time step: a code cannot be used twice. */
+    lastStep: Number,
+    recoveryHashes: [String],
+    failed: { type: Number, default: 0 },
+  },
+  twoFactorPending: { secretEnc: String, createdAt: Date },
   billing: {
     customerId: String,
     subscriptionId: String,
@@ -27,6 +42,8 @@ const sessionSchema = new Schema({
   userId: { type: Schema.Types.ObjectId, required: true, index: true },
   tokenHash: { type: String, required: true, unique: true },
   family: { type: String, required: true, index: true },
+  /** When this sign-in (family) began; preserved across refresh-token rotations. */
+  since: { type: Date },
   expiresAt: { type: Date, required: true, index: { expires: 0 } },
   revokedAt: { type: Date },
   userAgent: { type: String, maxlength: 300 },

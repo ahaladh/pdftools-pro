@@ -39,7 +39,14 @@ export const api = {
 
   auth: {
     register: (b: { email: string; password: string; name: string }) => call<AuthPayload>('/api/auth/register', json('POST', b)),
-    login: (b: { email: string; password: string }) => call<AuthPayload>('/api/auth/login', json('POST', b)),
+    /** Either a session, or - when the account has two-factor on - just a challenge to answer with a code. */
+    login: (b: { email: string; password: string }) => call<AuthPayload | import('@pdftools/shared').TwoFactorChallenge>('/api/auth/login', json('POST', b)),
+    loginTwoFactor: (b: { challenge: string; code: string }) => call<AuthPayload>('/api/auth/login/2fa', json('POST', b)),
+    verifyEmail: (token: string) => call<{ verified: boolean }>('/api/auth/verify-email', json('POST', { token })),
+    resendVerification: () => call<{ sent: boolean }>('/api/auth/resend-verification', { method: 'POST' }),
+    sessions: () => call<import('@pdftools/shared').SessionInfo[]>('/api/auth/sessions'),
+    revokeSession: (id: string) => call<{ revoked: boolean }>(`/api/auth/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    revokeOtherSessions: () => call<{ revoked: number }>('/api/auth/sessions/revoke-others', { method: 'POST' }),
     // keepalive: the revocation request must complete even if the user navigates away or closes the tab immediately.
     logout: () => call<{ loggedOut: boolean }>('/api/auth/logout', { method: 'POST', headers: { 'X-PDFTools-CSRF': '1' }, keepalive: true }),
     forgot: (email: string) => call<{ message: string }>('/api/auth/forgot-password', json('POST', { email })),
@@ -49,6 +56,10 @@ export const api = {
     get: () => call<UserView>('/api/me'),
     update: (name: string) => call<UserView>('/api/me', json('PATCH', { name })),
     changePassword: (currentPassword: string, newPassword: string) => call<AuthPayload>('/api/me/password', json('POST', { currentPassword, newPassword })),
+    twoFactorSetup: (password: string) => call<{ secret: string; otpauthUri: string; qr: string }>('/api/me/2fa/setup', json('POST', { password })),
+    twoFactorEnable: (code: string) => call<AuthPayload & { recoveryCodes: string[] }>('/api/me/2fa/enable', json('POST', { code })),
+    twoFactorDisable: (password: string, code: string) => call<AuthPayload>('/api/me/2fa/disable', json('POST', { password, code })),
+    recoveryCodes: (password: string, code: string) => call<{ recoveryCodes: string[] }>('/api/me/2fa/recovery-codes', json('POST', { password, code })),
     usage: () => call<UsageView>('/api/me/usage'),
     jobs: () => call<JobView[]>('/api/me/jobs'),
     remove: (password: string) => call<{ deleted: boolean }>('/api/me', json('DELETE', { password })),
@@ -60,6 +71,7 @@ export const api = {
   admin: {
     dashboard: () => call<AdminDashboard>('/api/admin/dashboard'),
     users: (q: { page: number; q?: string }) => call<Paged<AdminUser>>(`/api/admin/users?page=${q.page}&pageSize=20${q.q ? `&q=${encodeURIComponent(q.q)}` : ''}`),
+    resetTwoFactor: (id: string) => call<AdminUser>(`/api/admin/users/${id}/2fa/reset`, { method: 'POST' }),
     updateUser: (id: string, patch: Partial<Pick<AdminUser, 'role' | 'plan' | 'status'>>) => call<AdminUser>(`/api/admin/users/${id}`, json('PATCH', patch)),
     jobs: (q: { page: number; state?: string; tool?: string }) => call<Paged<AdminJob>>(`/api/admin/jobs?page=${q.page}&pageSize=20${q.state ? `&state=${q.state}` : ''}${q.tool ? `&tool=${q.tool}` : ''}`),
     usage: (days: number) => call<{ days: { day: string; ops: number; activeOwners: number }[]; topTools: { tool: string; ops: number }[] }>(`/api/admin/usage?days=${days}`),

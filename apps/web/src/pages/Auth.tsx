@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useSearchParams, Navigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -38,18 +38,74 @@ export function SignIn() {
   const [params] = useSearchParams();
   const status = useAuth((s) => s.status);
   const login = useAuth((s) => s.login);
+  const completeTwoFactor = useAuth((s) => s.completeTwoFactor);
   const [serverError, fail, clear] = useServerError();
   const f = useForm<z.input<typeof loginSchema>>({ resolver: zodResolver(loginSchema) });
+  /** Set once the password was accepted for an account with two-factor sign-in on. */
+  const [challenge, setChallenge] = useState<string | null>(null);
+  const [useRecovery, setUseRecovery] = useState(false);
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
   if (status === 'authenticated') return <Navigate to={safeNext(params.get('next'))} replace />;
+
+  if (challenge) {
+    return (
+      <Shell title="Two-step verification" subtitle={useRecovery ? 'Enter one of your recovery codes.' : 'Enter the 6-digit code from your authenticator app.'}
+        footer={<button type="button" className="text-brand-700 underline" onClick={() => { setChallenge(null); setCode(''); setUseRecovery(false); clear(); }}>Back to sign in</button>}>
+        <form className="space-y-4" noValidate onSubmit={async (e) => {
+          e.preventDefault(); clear(); setBusy(true);
+          try { await completeTwoFactor(challenge, code); nav(safeNext(params.get('next'))); }
+          catch (err) {
+            fail(err);
+            // An expired or invalid challenge cannot be retried: start over rather than leave the user stuck.
+            if (err instanceof ApiError && err.code === 'invalid_challenge') { setChallenge(null); setCode(''); }
+          } finally { setBusy(false); }
+        }}>
+          <Field label={useRecovery ? 'Recovery code' : 'Authentication code'} hint={useRecovery ? 'Each recovery code works once.' : undefined}>
+            <TextInput value={code} onChange={(e) => setCode(e.target.value)} autoFocus autoComplete="one-time-code" inputMode={useRecovery ? 'text' : 'numeric'} maxLength={useRecovery ? 16 : 6} spellCheck={false} placeholder={useRecovery ? 'xxxxx-xxxxx' : '123456'} />
+          </Field>
+          {serverError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{serverError}</p>}
+          <Button type="submit" className="w-full" disabled={busy || code.trim().length < 6}>{busy ? 'Verifying…' : 'Verify and sign in'}</Button>
+          <p className="text-center text-sm"><button type="button" className="text-slate-600 underline" onClick={() => { setUseRecovery((v) => !v); setCode(''); clear(); }}>{useRecovery ? 'Use my authenticator app instead' : 'Use a recovery code instead'}</button></p>
+        </form>
+      </Shell>
+    );
+  }
+
   return (
     <Shell title="Sign in" footer={<>No account? <Link className="text-brand-700 underline" to="/register">Create one</Link></>}>
-      <form className="space-y-4" noValidate onSubmit={f.handleSubmit(async (v) => { clear(); try { await login(v.email, v.password); nav(safeNext(params.get('next'))); } catch (e) { fail(e); } })}>
+      <form className="space-y-4" noValidate onSubmit={f.handleSubmit(async (v) => { clear(); try { const r = await login(v.email, v.password); if (r) setChallenge(r.challenge); else nav(safeNext(params.get('next'))); } catch (e) { fail(e); } })}>
         <Field label="Email"><TextInput type="email" autoComplete="email" {...f.register('email')} /><Err msg={f.formState.errors.email?.message} /></Field>
         <Field label="Password"><TextInput type="password" autoComplete="current-password" {...f.register('password')} /><Err msg={f.formState.errors.password?.message} /></Field>
         {serverError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{serverError}</p>}
         <Button type="submit" className="w-full" disabled={f.formState.isSubmitting}>{f.formState.isSubmitting ? 'Signing in…' : 'Sign in'}</Button>
         <p className="text-center text-sm"><Link to="/forgot-password" className="text-slate-600 underline">Forgot your password?</Link></p>
       </form>
+    </Shell>
+  );
+}
+
+/** Landing page for the link in the confirmation email. The token in the URL is the credential; it works once. */
+export function VerifyEmail() {
+  useSeo({ title: 'Confirm your email', description: 'Confirm your email address.', path: '/verify-email', noindex: true });
+  const [params] = useSearchParams();
+  const token = params.get('token') ?? '';
+  const [state, setState] = useState<'working' | 'done' | 'failed'>(token ? 'working' : 'failed');
+  const [error, setError] = useState(token ? '' : 'This link is incomplete. Open the whole link from the email.');
+  const ran = useRef(false);
+  const setUser = useAuth((s) => s.setUser);
+  const user = useAuth((s) => s.user);
+  useEffect(() => {
+    if (!token || ran.current) return; // StrictMode runs effects twice; a one-time token must be spent only once
+    ran.current = true;
+    api.auth.verifyEmail(token).then(() => { setState('done'); if (user) setUser({ ...user, emailVerified: true }); })
+      .catch((e: unknown) => { setState('failed'); setError(e instanceof Error ? e.message : 'Could not confirm your email.'); });
+  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <Shell title="Confirm your email">
+      {state === 'working' && <p role="status" className="text-sm text-slate-700">Confirming…</p>}
+      {state === 'done' && <p role="status" className="text-sm text-slate-800">Thanks, your email address is confirmed. <Link className="text-brand-700 underline" to="/account">Go to your account</Link></p>}
+      {state === 'failed' && <div role="alert" className="space-y-3 text-sm"><p className="text-red-700">{error}</p><Link className="text-brand-700 underline" to="/account">Open your account to get a new link</Link></div>}
     </Shell>
   );
 }

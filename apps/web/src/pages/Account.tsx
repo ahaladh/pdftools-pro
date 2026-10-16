@@ -15,6 +15,7 @@ import { setSessionHint, setToken } from '@/lib/session';
 import { useSeo } from '@/hooks/useSeo';
 import { useAuth } from '@/stores/auth';
 import { getTool } from '@pdftools/shared';
+import { DevicesCard, EmailStatus, TwoFactorCard } from '@/pages/account/Security';
 
 const when = (iso: string) => new Date(iso).toLocaleString();
 
@@ -54,6 +55,7 @@ export default function Account() {
           <Button variant="secondary" onClick={async () => { const revoked = api.auth.logout().catch(() => undefined); await leave(async () => { await revoked; useAuth.getState().clear(); }); }}>Sign out</Button>
         </div>
       </header>
+      <EmailStatus />
       {params.get('checkout') === 'success' && <p role="status" className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">Thanks! Your subscription is being activated; this can take a few seconds. Refresh to see your new plan.</p>}
 
       <section aria-labelledby="plan" className="grid gap-6 md:grid-cols-2">
@@ -107,6 +109,11 @@ export default function Account() {
           </table></div>
         )}
       </Card>
+
+      <section className="grid gap-6 md:grid-cols-2" aria-label="Sign-in security">
+        <TwoFactorCard />
+        <DevicesCard />
+      </section>
 
       <section className="grid gap-6 md:grid-cols-2" aria-label="Security">
         <Card className="p-6">

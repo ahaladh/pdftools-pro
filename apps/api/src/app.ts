@@ -165,8 +165,8 @@ export async function createApp(deps: AppDeps = {}) {
   if (accounts) {
     app.use('/api/auth', limiter(600, 40), authRoutes(env, auth));
     app.use('/api/me', accountRoutes({ auth, jobs, usage, settings, refreshCookie: (res, s) => setRefreshCookie(env, res, s) }));
-    app.use('/api/billing', billingRoutes(billing));
-    app.use('/api/admin', adminRoutes({ jobs, jobStore: jobStore as MongoJobStore, settings, audit }));
+    app.use('/api/billing', billingRoutes(billing, { requireVerifiedEmail: env.REQUIRE_VERIFIED_EMAIL }));
+    app.use('/api/admin', adminRoutes({ jobs, jobStore: jobStore as MongoJobStore, settings, audit, auth }));
   } else {
     for (const p of ['/api/auth', '/api/me', '/api/billing', '/api/admin']) app.use(p, disabled);
   }

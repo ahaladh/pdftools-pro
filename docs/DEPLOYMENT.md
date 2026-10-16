@@ -32,7 +32,7 @@ Always finish a deployment with `doctor` and `smoke` (below): they check the rea
 * Generate secrets:
   ```bash
   openssl rand -hex 32   # DOWNLOAD_SECRET
-  openssl rand -hex 32   # JWT_ACCESS_SECRET
+  openssl rand -hex 32   # JWT_ACCESS_SECRET (and again, separately, for TWO_FACTOR_KEY)
   openssl rand -hex 16   # METRICS_TOKEN
   openssl rand -hex 16   # MONGO_PASSWORD
   ```

@@ -25,6 +25,17 @@ describe('doctor: production configuration review', () => {
     expect(by(checkConfig(loadEnv({ ...GOOD, MONGODB_URI: 'mongodb://x', JWT_ACCESS_SECRET: 'k3J9fd8Q2mZ7vB1nX5cL0aW4sD6gH8jR' })), 'jwt secret').level).toBe('pass');
     expect(() => loadEnv({ ...GOOD, MONGODB_URI: 'mongodb://x' })).toThrow(/JWT_ACCESS_SECRET/); // and production refuses to even load without one
   });
+  it('with accounts on, warns about the two-factor key and unverified checkout, and is quiet once both are set', () => {
+    const accounts = { ...GOOD, MONGODB_URI: 'mongodb://x', JWT_ACCESS_SECRET: JWT };
+    const warn = checkConfig(loadEnv(accounts));
+    expect(by(warn, 'two-factor key').level).toBe('warn');
+    expect(by(warn, 'two-factor key').detail).toMatch(/rotating/);
+    expect(by(warn, 'verified email for checkout').level).toBe('warn');
+    const ok = checkConfig(loadEnv({ ...accounts, TWO_FACTOR_KEY: 'f'.repeat(40), REQUIRE_VERIFIED_EMAIL: 'true' }));
+    expect(by(ok, 'two-factor key').level).toBe('pass');
+    expect(by(ok, 'verified email for checkout').level).toBe('pass');
+    expect(() => loadEnv({ ...accounts, TWO_FACTOR_KEY: 'too short' })).toThrow(/TWO_FACTOR_KEY/);
+  });
   it('requires Stripe key and webhook secret together; warns about leftovers', () => {
     expect(by(checkConfig(loadEnv({ ...GOOD, STRIPE_SECRET_KEY: 'sk_test_x' })), 'billing').level).toBe('fail');
     expect(by(checkConfig(loadEnv({ ...GOOD, STRIPE_SECRET_KEY: 'sk_test_x', STRIPE_WEBHOOK_SECRET: 'whsec_x' })), 'billing').level).toBe('pass');

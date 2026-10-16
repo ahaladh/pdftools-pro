@@ -41,7 +41,10 @@ test('results survive an API process restart (job state lives in MongoDB, files 
   const { spawn } = await import('node:child_process');
   const { join } = await import('node:path');
   const { ROOT } = await import('../support/stack');
-  const api = spawn(process.execPath, [join(ROOT, 'apps/api/dist/server.js')], { cwd: join(ROOT, 'apps/api'), env: { ...s.env, PATH: process.env.PATH ?? '' }, stdio: 'ignore', detached: true });
+  // Keep logging to the stack's API log: later tests read emailed links from it, and a silent replacement would hand them stale ones.
+  const { openSync } = await import('node:fs');
+  const log = openSync(s.apiLog, 'a');
+  const api = spawn(process.execPath, [join(ROOT, 'apps/api/dist/server.js')], { cwd: join(ROOT, 'apps/api'), env: { ...s.env, PATH: process.env.PATH ?? '' }, stdio: ['ignore', log, log], detached: true });
   api.unref();
   await expect.poll(async () => (await fetch(`${s.apiUrl}/health`).catch(() => ({ ok: false }))).ok, { timeout: 30_000 }).toBe(true);
   const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download' }).click()]); // same guest cookie, same job

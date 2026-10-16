@@ -496,9 +496,9 @@ describe('account deletion and restart reconciliation', () => {
 
 describe('authorization matrix (accounts mode)', () => {
   const PUBLIC = ['GET /api/config', 'GET /api/openapi.json', 'GET /api/plans', 'GET /api/tools', 'GET /health', 'GET /ready'];
-  const AUTH_FLOW = ['POST /api/auth/forgot-password', 'POST /api/auth/login', 'POST /api/auth/logout', 'POST /api/auth/refresh', 'POST /api/auth/register', 'POST /api/auth/reset-password'];
-  const USER = ['DELETE /api/me', 'GET /api/me', 'GET /api/me/jobs', 'GET /api/me/usage', 'PATCH /api/me', 'POST /api/billing/checkout', 'POST /api/billing/portal', 'POST /api/me/password'];
-  const ADMIN = ['GET /api/admin/audit', 'GET /api/admin/dashboard', 'GET /api/admin/jobs', 'GET /api/admin/settings', 'GET /api/admin/usage', 'GET /api/admin/users', 'PATCH /api/admin/users/:id', 'PUT /api/admin/settings'];
+  const AUTH_FLOW = ['POST /api/auth/forgot-password', 'POST /api/auth/login', 'POST /api/auth/login/2fa', 'POST /api/auth/logout', 'POST /api/auth/refresh', 'POST /api/auth/register', 'POST /api/auth/reset-password', 'POST /api/auth/verify-email'];
+  const USER = ['DELETE /api/auth/sessions/:id', 'GET /api/auth/sessions', 'POST /api/auth/resend-verification', 'POST /api/auth/sessions/revoke-others', 'POST /api/me/2fa/disable', 'POST /api/me/2fa/enable', 'POST /api/me/2fa/recovery-codes', 'POST /api/me/2fa/setup', 'DELETE /api/me', 'GET /api/me', 'GET /api/me/jobs', 'GET /api/me/usage', 'PATCH /api/me', 'POST /api/billing/checkout', 'POST /api/billing/portal', 'POST /api/me/password'];
+  const ADMIN = ['GET /api/admin/audit', 'GET /api/admin/dashboard', 'GET /api/admin/jobs', 'GET /api/admin/settings', 'GET /api/admin/usage', 'GET /api/admin/users', 'PATCH /api/admin/users/:id', 'POST /api/admin/users/:id/2fa/reset', 'PUT /api/admin/settings'];
   const OWNER = ['DELETE /api/files/:fileId', 'GET /api/files/:fileId/download', 'GET /api/jobs/:jobId', 'POST /api/jobs/:jobId/cancel'];
   const PROCESSING = ['POST /api/pdf/:tool'];
   const WEBHOOK = ['POST /api/billing/webhook'];

@@ -75,6 +75,11 @@ const schema = z.object({
   /** Public origin of the site; used in emails and billing redirects. */
   PUBLIC_URL: z.string().default('http://localhost:5173'),
   SMTP_URL: z.string().optional(),
+  /** When on, an unverified email cannot start a paid checkout. Recommended in production. */
+  REQUIRE_VERIFIED_EMAIL: bool(false),
+  VERIFY_TOKEN_TTL_HOURS: num(24),
+  /** Encrypts two-factor secrets at rest. Falls back to JWT_ACCESS_SECRET; set it separately so rotating the JWT secret does not lock users out. */
+  TWO_FACTOR_KEY: z.string().min(32).optional(),
   MAIL_FROM: z.string().default('PDFTools Pro <no-reply@localhost>'),
   /** Optional first-admin bootstrap: created at startup only if no user has this email. */
   ADMIN_EMAIL: z.string().email().optional(),

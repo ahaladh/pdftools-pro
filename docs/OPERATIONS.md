@@ -108,6 +108,12 @@ Alert: `PdfToolsHigh5xxRate`. `pdftools_api_errors_total{code,status}` and the l
 
 Alert: `PdfToolsLoginAttack`. Accounts lock for 15 minutes after 5 failures and nginx limits `/api/auth/` per IP, so this is mostly noise, but check for a distributed attack: admin → Audit log, filter `auth.login_failed`. Block source ranges in the firewall/nginx; consider lowering `limit_req` rates. Never reveal whether an email exists. After a suspected credential leak, disable the account (admin → Users) and ask the user to reset the password.
 
+### A user is locked out of two-step verification
+
+They have lost their phone **and** their recovery codes. First make sure the request is genuine: this is the path an attacker would use, so confirm identity through something other than the account's own email if at all possible (a known contact, a support ticket history, payment details). Then admin → Users → find them → **Reset** in the *2-step* column. It turns 2FA off, signs them out everywhere and is recorded in the audit log (`auth.2fa_reset_by_admin`, with your user id). Tell them to turn it on again and save new recovery codes.
+
+If **everyone** with 2FA is suddenly unable to sign in with a valid code, the encryption key probably changed: `TWO_FACTOR_KEY` (or `JWT_ACCESS_SECRET` if that is what you rely on) no longer matches what the secrets were sealed with. Restore the old value. There is no re-encryption tool yet, so do not rotate the key without one.
+
 ### Storage
 
 Alert: `PdfToolsStorageNearlyFull`. Results are deleted at retention; inputs immediately after processing.

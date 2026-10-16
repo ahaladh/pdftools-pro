@@ -39,7 +39,9 @@ export function checkConfig(env: Env): DoctorCheck[] {
   add('job isolation', sev(!env.ISOLATE_JOBS), env.ISOLATE_JOBS ? `process isolation on (cap ${env.ISOLATION_MEMORY_MB} MB)` : 'DISABLED: documents are processed inside the API/worker process');
   add('metrics endpoint', env.METRICS_TOKEN ? 'pass' : 'warn', env.METRICS_TOKEN ? 'protected by METRICS_TOKEN' : prod ? '/metrics is disabled (set METRICS_TOKEN to enable scraping)' : 'open (development)');
   if (env.MONGODB_URI) {
-    add('email delivery', env.SMTP_URL ? 'pass' : 'warn', env.SMTP_URL ? 'SMTP configured' : 'SMTP_URL not set: password-reset emails cannot be delivered');
+    add('email delivery', env.SMTP_URL ? 'pass' : 'warn', env.SMTP_URL ? 'SMTP configured' : 'SMTP_URL not set: password-reset and email-confirmation messages cannot be delivered');
+    add('two-factor key', env.TWO_FACTOR_KEY ? 'pass' : prod ? 'warn' : 'pass', env.TWO_FACTOR_KEY ? 'TWO_FACTOR_KEY set' : 'TWO_FACTOR_KEY not set: authenticator secrets are encrypted with JWT_ACCESS_SECRET, so rotating that secret would lock every 2FA user out. Set a separate TWO_FACTOR_KEY (32+ chars)');
+    add('verified email for checkout', env.REQUIRE_VERIFIED_EMAIL ? 'pass' : prod ? 'warn' : 'pass', env.REQUIRE_VERIFIED_EMAIL ? 'required' : 'REQUIRE_VERIFIED_EMAIL is off: an unconfirmed address can start a paid checkout');
     add('bootstrap admin', env.ADMIN_PASSWORD ? 'warn' : 'pass', env.ADMIN_PASSWORD ? 'ADMIN_PASSWORD is still set: remove it after the first start' : 'not set');
   }
   const stripeBits = [env.STRIPE_SECRET_KEY, env.STRIPE_WEBHOOK_SECRET].filter(Boolean).length;

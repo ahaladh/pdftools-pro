@@ -9,7 +9,9 @@ interface AuthState {
   user: UserView | null;
   init: () => Promise<void>;
   accept: (p: AuthPayload) => void;
-  login: (email: string, password: string) => Promise<void>;
+  /** Resolves to a challenge when the account needs a second factor, otherwise signs in and resolves to null. */
+  login: (email: string, password: string) => Promise<{ challenge: string } | null>;
+  completeTwoFactor: (challenge: string, code: string) => Promise<void>;
   register: (email: string, password: string, name: string) => Promise<void>;
   logout: () => Promise<void>;
   setUser: (u: UserView) => void;
@@ -30,7 +32,13 @@ export const useAuth = create<AuthState>((set, get) => ({
     }
   },
   accept(p) { setToken(p.accessToken); setSessionHint(true); set({ status: 'authenticated', user: p.user }); },
-  async login(email, password) { get().accept(await api.auth.login({ email, password })); },
+  async login(email, password) {
+    const r = await api.auth.login({ email, password });
+    if ('twoFactorRequired' in r) return { challenge: r.challenge };
+    get().accept(r);
+    return null;
+  },
+  async completeTwoFactor(challenge, code) { get().accept(await api.auth.loginTwoFactor({ challenge, code })); },
   async register(email, password, name) { get().accept(await api.auth.register({ email, password, name })); },
   async logout() { await api.auth.logout().catch(() => undefined); get().clear(); },
   setUser(user) { set({ user }); },

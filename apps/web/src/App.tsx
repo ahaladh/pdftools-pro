@@ -4,7 +4,7 @@ import { Route, Routes } from 'react-router-dom';
 import { Layout } from '@/layouts/Layout';
 import Home from '@/pages/Home';
 import NotFound from '@/pages/NotFound';
-import { ForgotPassword, Register, RequireAuth, ResetPassword, SignIn } from '@/pages/Auth';
+import { ForgotPassword, Register, RequireAuth, ResetPassword, SignIn, VerifyEmail } from '@/pages/Auth';
 
 const Tools = lazy(() => import('@/pages/Tools'));
 const Pricing = lazy(() => import('@/pages/Pricing'));
@@ -28,6 +28,7 @@ export default function App() {
           <Route path="register" element={<Register />} />
           <Route path="forgot-password" element={<ForgotPassword />} />
           <Route path="reset-password" element={<ResetPassword />} />
+          <Route path="verify-email" element={<VerifyEmail />} />
           <Route path="account" element={<RequireAuth><Account /></RequireAuth>} />
           <Route path="admin" element={<RequireAuth admin><Admin /></RequireAuth>} />
           <Route path=":toolId" element={<ToolPage />} />

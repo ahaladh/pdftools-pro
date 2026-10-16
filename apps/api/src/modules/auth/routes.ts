@@ -1,9 +1,9 @@
 import { Router, type Response } from 'express';
-import { forgotSchema, loginSchema, registerSchema, resetSchema } from '@pdftools/shared';
+import { forgotSchema, loginSchema, registerSchema, resetSchema, twoFactorLoginSchema, verifyEmailSchema } from '@pdftools/shared';
 import type { Env } from '../../config/env.js';
 import { ok, wrap } from '../../middleware/common.js';
 import { HttpError } from '../../utils/errors.js';
-import { requireCsrfHeader } from './middleware.js';
+import { requireCsrfHeader, requireUser } from './middleware.js';
 import type { AuthService, Session } from './service.js';
 
 const REFRESH_COOKIE = 'pt_refresh';
@@ -19,7 +19,21 @@ export function authRoutes(env: Env, auth: AuthService) {
   };
 
   r.post('/register', wrap(async (req, res) => respond(res, await auth.register(req, registerSchema.parse(req.body)), 201)));
-  r.post('/login', wrap(async (req, res) => { const b = loginSchema.parse(req.body); respond(res, await auth.login(req, b.email, b.password)); }));
+  r.post('/login', wrap(async (req, res) => {
+    const b = loginSchema.parse(req.body);
+    const s = await auth.login(req, b.email, b.password);
+    if ('twoFactorRequired' in s) return ok(res, s); // password was right; no session or cookie until the second factor is too
+    respond(res, s);
+  }));
+  r.post('/login/2fa', wrap(async (req, res) => { const b = twoFactorLoginSchema.parse(req.body); respond(res, await auth.completeTwoFactorLogin(req, b.challenge, b.code)); }));
+
+  r.post('/verify-email', wrap(async (req, res) => { await auth.verifyEmail(req, verifyEmailSchema.parse(req.body).token); ok(res, { verified: true }); }));
+  r.post('/resend-verification', requireUser, wrap(async (req, res) => { await auth.resendVerification(req, req.user); ok(res, { sent: true }); }));
+
+  // Devices. Bearer-authenticated (so CSRF cannot reach them); the refresh cookie is only read to say which one is "this device".
+  r.get('/sessions', requireUser, wrap(async (req, res) => ok(res, await auth.listSessions(req.user._id, req.cookies?.[REFRESH_COOKIE]))));
+  r.post('/sessions/revoke-others', requireUser, wrap(async (req, res) => ok(res, { revoked: await auth.revokeOtherSessions(req, req.user._id, req.cookies?.[REFRESH_COOKIE]) })));
+  r.delete('/sessions/:id', requireUser, wrap(async (req, res) => { await auth.revokeSession(req, req.user._id, String(req.params.id)); ok(res, { revoked: true }); }));
 
   r.post('/refresh', requireCsrfHeader, wrap(async (req, res) => {
     const token = req.cookies?.[REFRESH_COOKIE];

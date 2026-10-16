@@ -7,6 +7,7 @@ import { ok, wrap } from '../../middleware/common.js';
 import { HttpError } from '../../utils/errors.js';
 import type { AuditService } from '../auth/audit.js';
 import { requireAdmin } from '../auth/middleware.js';
+import type { AuthService } from '../auth/service.js';
 import { userView } from '../auth/service.js';
 import type { JobService } from '../jobs/service.js';
 import type { MongoJobStore } from '../jobs/mongo-store.js';
@@ -15,7 +16,7 @@ import type { SettingsService } from '../settings/service.js';
 const page = z.object({ page: z.coerce.number().int().min(1).default(1), pageSize: z.coerce.number().int().min(1).max(100).default(25) });
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-export function adminRoutes(deps: { jobs: JobService; jobStore: MongoJobStore; settings: SettingsService; audit: AuditService }) {
+export function adminRoutes(deps: { jobs: JobService; jobStore: MongoJobStore; settings: SettingsService; audit: AuditService; auth: AuthService }) {
   const r = Router();
   r.use(requireAdmin); // every admin endpoint: authenticated AND role=admin, checked server-side
 
@@ -43,6 +44,17 @@ export function adminRoutes(deps: { jobs: JobService; jobStore: MongoJobStore; s
     const filter = q ? { email: { $regex: escapeRe(q.toLowerCase()) } } : {};
     const [rows, total] = await Promise.all([UserModel.find(filter).sort({ createdAt: -1 }).skip((p - 1) * pageSize).limit(pageSize), UserModel.countDocuments(filter)]);
     ok(res, { rows: rows.map((u) => ({ ...userView(u), status: u.status, lastLoginAt: u.lastLoginAt?.toISOString() })), total, page: p, pageSize });
+  }));
+
+  /** For someone locked out of their authenticator and recovery codes. Signs the user out everywhere; audited with who did it. */
+  r.post('/users/:id/2fa/reset', wrap(async (req, res) => {
+    const id = String(req.params.id);
+    if (!/^[a-f0-9]{24}$/.test(id)) throw new HttpError(404, 'not_found', 'User not found');
+    const user = await UserModel.findById(id);
+    if (!user) throw new HttpError(404, 'not_found', 'User not found');
+    if (!user.twoFactor?.enabledAt) throw new HttpError(409, 'two_factor_off', 'This user has not turned on two-factor sign-in.');
+    await deps.auth.adminResetTwoFactor(req, user);
+    ok(res, userView(user));
   }));
 
   r.patch('/users/:id', wrap(async (req, res) => {
