@@ -15,12 +15,15 @@ interface AuthState {
   register: (email: string, password: string, name: string) => Promise<void>;
   logout: () => Promise<void>;
   setUser: (u: UserView) => void;
-  clear: () => void;
+  /** True after the user chose to sign out (or deleted their account), as opposed to a session that expired. */
+  leftOnPurpose: boolean;
+  clear: (opts?: { onPurpose?: boolean }) => void;
 }
 
 export const useAuth = create<AuthState>((set, get) => ({
   status: 'loading',
   user: null,
+  leftOnPurpose: false,
   /** Restore a session from the refresh cookie (only attempted if we previously signed in). */
   async init() {
     if (!hasSessionHint()) return set({ status: 'anonymous' });
@@ -31,7 +34,7 @@ export const useAuth = create<AuthState>((set, get) => ({
       if (e instanceof RefreshError && e.kind === 'invalid') get().clear(); else set({ status: 'unavailable' });
     }
   },
-  accept(p) { setToken(p.accessToken); setSessionHint(true); set({ status: 'authenticated', user: p.user }); },
+  accept(p) { setToken(p.accessToken); setSessionHint(true); set({ status: 'authenticated', user: p.user, leftOnPurpose: false }); },
   async login(email, password) {
     const r = await api.auth.login({ email, password });
     if ('twoFactorRequired' in r) return { challenge: r.challenge };
@@ -40,9 +43,9 @@ export const useAuth = create<AuthState>((set, get) => ({
   },
   async completeTwoFactor(challenge, code) { get().accept(await api.auth.loginTwoFactor({ challenge, code })); },
   async register(email, password, name) { get().accept(await api.auth.register({ email, password, name })); },
-  async logout() { await api.auth.logout().catch(() => undefined); get().clear(); },
+  async logout() { await api.auth.logout().catch(() => undefined); get().clear({ onPurpose: true }); },
   setUser(user) { set({ user }); },
-  clear() { setToken(null); setSessionHint(false); set({ status: 'anonymous', user: null }); },
+  clear(opts) { setToken(null); setSessionHint(false); set({ status: 'anonymous', user: null, leftOnPurpose: !!opts?.onPurpose }); },
 }));
 
 // A refresh failure anywhere signs the user out of the UI.

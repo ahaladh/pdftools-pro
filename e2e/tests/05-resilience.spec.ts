@@ -8,7 +8,9 @@ const pdftoppmCount = () => Number(execFileSync('sh', ['-c', 'ps -eo cmd | grep 
 test('a worker crash mid-job: the user gets a clear error, no orphaned engines are left running, and retry works once a worker is back', async ({ page }) => {
   test.setTimeout(150_000);
   await page.goto('/pdf-to-images');
-  await page.setInputFiles('input[type=file]', file('long.pdf', await makePdf(200)));
+  // Must still be running when we look for the engine, on any machine: few pages, each huge (1600pt at 300 DPI = ~44 megapixels),
+  // rather than many small ones that a fast machine can finish before the first poll.
+  await page.setInputFiles('input[type=file]', file('long.pdf', await makePdf(40, { w: 1600, h: 1600 })));
   await page.getByLabel('Resolution (DPI)').fill('300');
   await page.getByRole('button', { name: 'PDF to JPG / PNG' }).click();
   await expect(page.getByText(/Processing…/)).toBeVisible({ timeout: 20_000 });

@@ -53,7 +53,7 @@ export default function Account() {
         <div><h1 className="text-3xl font-bold tracking-tight">Your account</h1><p className="text-slate-600">{user.email}</p></div>
         <div className="ml-auto flex gap-2">
           {user.role === 'admin' && <Link to="/admin" className={buttonClass({ variant: 'secondary' })}>Admin</Link>}
-          <Button variant="secondary" onClick={async () => { const revoked = api.auth.logout().catch(() => undefined); await leave(async () => { await revoked; useAuth.getState().clear(); }); }}>Sign out</Button>
+          <Button variant="secondary" onClick={async () => { const revoked = api.auth.logout().catch(() => undefined); await leave(async () => { await revoked; useAuth.getState().clear({ onPurpose: true }); }); }}>Sign out</Button>
         </div>
       </header>
       <EmailStatus />
@@ -140,7 +140,7 @@ export default function Account() {
           <p className="mt-1 text-sm text-slate-600">Permanently deletes your account, job history and any stored results, and cancels your subscription. This cannot be undone.</p>
           <form className="mt-4 space-y-3" onSubmit={async (e) => {
             e.preventDefault(); setDelErr(null);
-            try { await api.me.remove(delPw); await leave(() => { setToken(null); setSessionHint(false); useAuth.getState().clear(); }); } catch (err) { setDelErr((err as Error).message); }
+            try { await api.me.remove(delPw); await leave(() => { setToken(null); setSessionHint(false); useAuth.getState().clear({ onPurpose: true }); }); } catch (err) { setDelErr((err as Error).message); }
           }}>
             <Field label="Confirm with your password"><TextInput type="password" autoComplete="current-password" value={delPw} onChange={(e) => setDelPw(e.target.value)} /></Field>
             <Button type="submit" variant="danger" className="border border-red-200" disabled={!delPw}>Delete my account</Button>

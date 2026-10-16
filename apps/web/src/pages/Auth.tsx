@@ -173,10 +173,12 @@ export function ResetPassword() {
 
 /** Route guard. Waits for session restore, then redirects anonymous users to sign-in. */
 export function RequireAuth({ children, admin }: { children: ReactNode; admin?: boolean }) {
-  const { status, user, init } = useAuth();
+  const { status, user, init, leftOnPurpose } = useAuth();
   if (status === 'unavailable') return <div role="alert" className="p-12 text-center"><p className="text-slate-700">We couldn't reach the server to restore your session.</p><Button className="mt-4" onClick={() => void init()}>Try again</Button></div>;
   if (status === 'loading') return <p className="p-12 text-center text-slate-500" role="status">Loading…</p>;
   // Keep the query string: links such as /team/join?token=... must survive the trip through sign-in.
+  // Someone who just signed out on purpose goes home. Only an expired or missing session is sent to sign in, and only then does the return path matter.
+  if (status === 'anonymous' && leftOnPurpose) return <Navigate to="/" replace />;
   if (status === 'anonymous') return <Navigate to={`/signin?next=${encodeURIComponent(window.location.pathname + window.location.search)}`} replace />;
   if (admin && user?.role !== 'admin') return <Navigate to="/account" replace />; // UX only; the API enforces this
   return <>{children}</>;
