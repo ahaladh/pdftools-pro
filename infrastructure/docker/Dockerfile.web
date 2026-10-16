@@ -2,7 +2,7 @@
 # The build stage uses Playwright's image because prerendering needs Chromium (it is bundled there). SITE_URL is REQUIRED:
 # it is baked into canonical URLs, the sitemap and robots.txt. Verified without a Docker daemon by
 # infrastructure/scripts/sim-docker-build.mjs (npm steps only; prerender is verified separately by the e2e SEO suite).
-FROM mcr.microsoft.com/playwright:v1.49.0-jammy AS build
+FROM mcr.microsoft.com/playwright:v1.64.0-jammy AS build
 ARG SITE_URL
 ARG VITE_BRAND_NAME="PDFTools Pro"
 ARG PRERENDER=1

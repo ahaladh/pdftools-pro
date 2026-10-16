@@ -37,7 +37,11 @@ test.beforeAll(async () => {
   api.stdout!.on('data', (d: Buffer) => { apiLogs += d.toString(); }); api.stderr!.on('data', (d: Buffer) => { apiLogs += d.toString(); });
   await until(async () => (await fetch(`http://127.0.0.1:${API_PORT}/health`)).ok);
   edge = startEdge({ apiAddr: `127.0.0.1:${API_PORT}`, httpPort: HTTP_PORT, httpsPort: HTTPS_PORT });
-  await until(async () => (await fetch(`http://localhost:${HTTP_PORT}/`, { redirect: 'manual' })).status === 301);
+  await until(async () => (await fetch(`http://localhost:${HTTP_PORT}/`, { redirect: 'manual' })).status === 301).catch((e: Error) => {
+    // Say WHY nginx did not come up (bad directive for this nginx version, port in use...) instead of just "timed out".
+    let log = ''; try { log = readFileSync(edge.errorLog, 'utf8').split('\n').slice(-15).join('\n'); } catch { /* none */ }
+    throw new Error(`${e.message}\n--- nginx -t:\n${edge.test()}\n--- error.log (tail):\n${log}`);
+  });
   http = await pwRequest.newContext({ ignoreHTTPSErrors: true, baseURL: edge.httpsUrl });
 });
 test.afterAll(async () => { await http?.dispose(); edge?.stop(); try { process.kill(-api.pid!, 'SIGTERM'); } catch { /* gone */ } });

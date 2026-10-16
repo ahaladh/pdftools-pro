@@ -85,7 +85,7 @@ jobs:
           echo "NGINX_BIN=$(command -v nginx)" >> "$GITHUB_ENV"
           curl -fsSL https://github.com/caddyserver/caddy/releases/download/v2.8.4/caddy_2.8.4_linux_amd64.tar.gz | sudo tar xz -C /usr/local/bin caddy
           echo "CADDY_BIN=/usr/local/bin/caddy" >> "$GITHUB_ENV"
-          npx --yes playwright@1.49 install --with-deps chrome
+          npx --yes playwright@1.64 install --with-deps chrome
       - run: npm ci
         env: { REDISMS_DISABLE_POSTINSTALL: '1', PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1' }
       - run: SITE_URL=http://localhost:4173 npm run test:e2e

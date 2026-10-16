@@ -17,8 +17,9 @@ server {
 }
 
 server {
-  listen __HTTPS_PORT__ ssl;
-  http2 on;
+  # `listen ... http2` (not the `http2 on;` directive) so this works on the nginx that Debian/Ubuntu LTS ship (1.18-1.24);
+  # nginx >= 1.25.1 only prints a deprecation notice for it.
+  listen __HTTPS_PORT__ ssl http2;
   server_name __DOMAIN__;
   server_tokens off;
   root "__WEB_ROOT__";
