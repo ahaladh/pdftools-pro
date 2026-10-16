@@ -16,6 +16,7 @@ import { useSeo } from '@/hooks/useSeo';
 import { useAuth } from '@/stores/auth';
 import { getTool } from '@pdftools/shared';
 import { DevicesCard, EmailStatus, TwoFactorCard } from '@/pages/account/Security';
+import { TeamCard } from '@/pages/account/Team';
 
 const when = (iso: string) => new Date(iso).toLocaleString();
 
@@ -61,7 +62,7 @@ export default function Account() {
       <section aria-labelledby="plan" className="grid gap-6 md:grid-cols-2">
         <Card className="p-6">
           <h2 id="plan" className="text-lg font-semibold">Plan & usage</h2>
-          <p className="mt-1 text-sm text-slate-600">Current plan: <b className="capitalize">{user.plan}</b>{sub && <> · subscription {sub.status}{sub.cancelAtPeriodEnd ? ' (ends at period end)' : ''}{sub.currentPeriodEnd ? `, renews ${new Date(sub.currentPeriodEnd).toLocaleDateString()}` : ''}</>}</p>
+          <p className="mt-1 text-sm text-slate-600">Current plan: <b className="capitalize">{user.effectivePlan}</b>{user.team && user.effectivePlan !== user.plan && <> (shared by the team “{user.team.name}”)</>}{sub && <> · subscription {sub.status}{sub.cancelAtPeriodEnd ? ' (ends at period end)' : ''}{sub.currentPeriodEnd ? `, renews ${new Date(sub.currentPeriodEnd).toLocaleDateString()}` : ''}</>}</p>
           {u && (
             <>
               <div className="mt-4"><div className="mb-1 flex justify-between text-sm"><span>Operations today</span><span>{u.today.ops} / {u.today.limit}</span></div>
@@ -77,7 +78,7 @@ export default function Account() {
           )}
           <div className="mt-5 flex flex-wrap gap-2">
             {cfg.data?.features.billing && sub && <Button variant="secondary" onClick={() => portal.mutate()} disabled={portal.isPending}>Manage billing</Button>}
-            {user.plan !== 'business' && <Link to="/pricing" className={buttonClass()}>{user.plan === 'free' ? 'Upgrade' : 'See plans'}</Link>}
+            {user.effectivePlan !== 'business' && <Link to="/pricing" className={buttonClass()}>{user.effectivePlan === 'free' ? 'Upgrade' : 'See plans'}</Link>}
           </div>
           {portal.error && <p role="alert" className="mt-2 text-sm text-red-600">{(portal.error as Error).message}</p>}
         </Card>
@@ -109,6 +110,10 @@ export default function Account() {
           </table></div>
         )}
       </Card>
+
+      <section className="grid gap-6 md:grid-cols-2" aria-label="Team section">
+        <TeamCard />
+      </section>
 
       <section className="grid gap-6 md:grid-cols-2" aria-label="Sign-in security">
         <TwoFactorCard />

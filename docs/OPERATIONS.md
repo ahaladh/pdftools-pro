@@ -114,6 +114,12 @@ They have lost their phone **and** their recovery codes. First make sure the req
 
 If **everyone** with 2FA is suddenly unable to sign in with a valid code, the encryption key probably changed: `TWO_FACTOR_KEY` (or `JWT_ACCESS_SECRET` if that is what you rely on) no longer matches what the secrets were sealed with. Restore the old value. There is no re-encryption tool yet, so do not rotate the key without one.
 
+### Team questions
+
+* *"My teammate cannot join."* The invitation only works for the signed-in account whose **confirmed** email matches the address it was sent to (look for `team.invited` and a failed accept in the log); a person can be in only one team at a time; and there must be a free seat.
+* *"The owner left the company / is unreachable."* There is no admin override for team ownership yet. A member who is an admin cannot take it, so the owner must transfer it. If that is impossible, handle it as an account-recovery case (verify identity first), then change the owner directly in the `teams` and `teammembers` collections.
+* *Seats do not match the plan after a price change:* seats come from `TEAM_SEATS_*`, not from Stripe. Lowering them never evicts members; it only blocks new invitations.
+
 ### Storage
 
 Alert: `PdfToolsStorageNearlyFull`. Results are deleted at retention; inputs immediately after processing.

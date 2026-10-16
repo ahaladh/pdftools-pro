@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import type { Logger } from 'pino';
-import { AuditModel, JobModel, SessionModel, UsageModel, UserModel } from './models.js';
+import { AuditModel, InviteModel, JobModel, MemberModel, SessionModel, TeamModel, UsageModel, UserModel } from './models.js';
 
 /**
  * Forward-only, ordered, idempotent data migrations, recorded in the `migrations` collection.
@@ -32,6 +32,11 @@ export const MIGRATIONS: Migration[] = [
     id: '0003-scrub-job-secrets',
     description: 'Remove any password fields that may linger in historical job records',
     up: async () => { await mongoose.connection.collection('jobs').updateMany({}, { $unset: { 'options.password': '', 'options.ownerPassword': '' } }); },
+  },
+  {
+    id: '0004-team-indexes',
+    description: 'Create the team collections\' indexes (one team per person, unique invitations)',
+    up: async () => { for (const m of [TeamModel, MemberModel, InviteModel]) await m.createIndexes(); },
   },
 ];
 

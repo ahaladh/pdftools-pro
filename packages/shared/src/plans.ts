@@ -47,6 +47,26 @@ export interface UserView {
   /** The user has proven control of the email address. */
   emailVerified: boolean;
   twoFactorEnabled: boolean;
+  /** The plan that actually applies: the better of `plan` (their own) and their team's. */
+  effectivePlan: PlanId;
+  team?: { id: string; name: string; role: TeamRole; plan: PlanId };
+}
+
+export type TeamRole = 'owner' | 'admin' | 'member';
+export interface TeamMemberView { userId: string; email: string; name: string; role: TeamRole; joinedAt: string; you: boolean }
+export interface TeamInviteView { id: string; email: string; role: 'admin' | 'member'; invitedAt: string; expiresAt: string }
+export interface TeamView {
+  id: string; name: string; myRole: TeamRole;
+  /** The plan the team pays for (free when there is no active subscription). */
+  plan: PlanId;
+  /** Seats the plan allows, and how many are taken by members plus pending invitations. */
+  seats: number; seatsUsed: number;
+  members: TeamMemberView[];
+  /** Pending invitations: owners and admins only. */
+  invites: TeamInviteView[];
+  /** Billing state: owner only. */
+  subscription?: { status: string; plan: PlanId; currentPeriodEnd?: string; cancelAtPeriodEnd?: boolean };
+  createdAt: string;
 }
 
 /** Result of a password check for an account with two-factor sign-in on: no session yet, just a short-lived challenge. */
@@ -77,4 +97,10 @@ export const twoFactorLoginSchema = z.object({ challenge: z.string().min(20).max
 export const reauthSchema = z.object({ password: z.string().min(1).max(128) });
 export const twoFactorEnableSchema = z.object({ code: secondFactor });
 export const twoFactorConfirmSchema = z.object({ password: z.string().min(1).max(128), code: secondFactor });
+export const createTeamSchema = z.object({ name: z.string().trim().min(2, 'Use at least 2 characters').max(60) });
+export const renameTeamSchema = createTeamSchema;
+export const inviteSchema = z.object({ email: z.string().trim().toLowerCase().email().max(254), role: z.enum(['admin', 'member']).default('member') });
+export const acceptInviteSchema = z.object({ token: z.string().min(20).max(200) });
+export const memberRoleSchema = z.object({ role: z.enum(['admin', 'member']) });
+export const transferSchema = z.object({ userId: z.string().regex(/^[a-f0-9]{24}$/) });
 export const profileSchema = z.object({ name: z.string().trim().max(80) });

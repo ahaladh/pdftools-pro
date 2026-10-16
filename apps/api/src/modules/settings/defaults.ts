@@ -14,9 +14,9 @@ export function defaultSettings(env: Env): AppSettings {
     free: { id: 'free', name: 'Free', ...base, retentionMinutes: Math.max(base.retentionMinutes, 120), dailyOps: env.DAILY_OPS_FREE, priority: 0, blockedTools: premium, priceCents: 0, currency: 'usd',
       features: ['Job history', 'Higher daily limit', 'Basic tools'] },
     pro: { id: 'pro', name: 'Pro', maxFileMB: 200, maxPages: 2000, maxFiles: 50, dailyOps: 1000, maxConcurrentJobs: 5, retentionMinutes: 24 * 60, priority: 10, blockedTools: [], priceCents: 900, currency: 'usd', stripePriceId: env.STRIPE_PRICE_PRO,
-      features: ['Larger files', '1,000 operations/day', 'Premium tools (Office conversion, redaction, compare)', 'Priority processing'] },
+      features: ['Larger files', '1,000 operations/day', 'Premium tools (Office conversion, redaction, compare)', 'Priority processing', `Team plan (up to ${env.TEAM_SEATS_PRO} people)`] },
     business: { id: 'business', name: 'Business', maxFileMB: 500, maxPages: 5000, maxFiles: 100, dailyOps: 10000, maxConcurrentJobs: 10, retentionMinutes: 72 * 60, priority: 20, blockedTools: [], priceCents: 2900, currency: 'usd', stripePriceId: env.STRIPE_PRICE_BUSINESS,
-      features: ['Highest limits', '10,000 operations/day', 'All premium tools', 'Highest priority', 'Team accounts and shared billing: planned'] },
+      features: ['Highest limits', '10,000 operations/day', 'All premium tools', 'Highest priority', `Team accounts and shared billing (up to ${env.TEAM_SEATS_BUSINESS} people)`] },
   };
   return { maintenance: env.MAINTENANCE_MODE, disabledTools: [], plans };
 }

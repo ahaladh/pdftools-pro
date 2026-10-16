@@ -33,6 +33,8 @@ import { AuditService } from './modules/auth/audit.js';
 import { accountRoutes } from './modules/account/routes.js';
 import { BillingService, type StripeClient } from './modules/billing/service.js';
 import { billingRoutes, webhookRoute } from './modules/billing/routes.js';
+import { TeamService } from './modules/teams/service.js';
+import { teamRoutes } from './modules/teams/routes.js';
 import { adminRoutes } from './modules/admin/routes.js';
 import mongoose from 'mongoose';
 import { assertSchemaNotNewer, migrationStatus, runMigrations } from './db/migrations.js';
@@ -82,8 +84,10 @@ export async function createApp(deps: AppDeps = {}) {
   const billing = new BillingService(env, settings, log, accounts ? stripe : null);
 
   const mongoJobs = jobStore instanceof MongoJobStore ? jobStore : null;
+  const teams = new TeamService(env, mailer, audit, log, { cancelSubscription: (t) => billing.cancelForDeletion(t) });
   const auth = new AuthService(env, mailer, audit, log, {
     cancelSubscription: (u) => billing.cancelForDeletion(u),
+    leaveTeam: (u) => teams.onAccountDeletion(u),
     deleteUserData: async (owner) => {
       if (mongoJobs) { for (const j of await mongoJobs.listByOwner(owner)) await jobs.expire(j, 'user'); await mongoJobs.deleteByOwner(owner); }
       await usage.deleteKey(owner);
@@ -165,10 +169,11 @@ export async function createApp(deps: AppDeps = {}) {
   if (accounts) {
     app.use('/api/auth', limiter(600, 40), authRoutes(env, auth));
     app.use('/api/me', accountRoutes({ auth, jobs, usage, settings, refreshCookie: (res, s) => setRefreshCookie(env, res, s) }));
-    app.use('/api/billing', billingRoutes(billing, { requireVerifiedEmail: env.REQUIRE_VERIFIED_EMAIL }));
+    app.use('/api/billing', billingRoutes(billing, { requireVerifiedEmail: env.REQUIRE_VERIFIED_EMAIL, teamOf: (u) => teams.context(u) }));
+    app.use('/api/teams', teamRoutes(teams));
     app.use('/api/admin', adminRoutes({ jobs, jobStore: jobStore as MongoJobStore, settings, audit, auth }));
   } else {
-    for (const p of ['/api/auth', '/api/me', '/api/billing', '/api/admin']) app.use(p, disabled);
+    for (const p of ['/api/auth', '/api/me', '/api/billing', '/api/teams', '/api/admin']) app.use(p, disabled);
   }
 
   app.use('/api/pdf', pdfRoutes(env, jobs, entitlements));

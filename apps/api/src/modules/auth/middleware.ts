@@ -4,12 +4,15 @@ import { UserModel } from '../../db/models.js';
 import { HttpError } from '../../utils/errors.js';
 import { newId } from '../../utils/security.js';
 import { verifyAccessToken } from './tokens.js';
+import { planInfo } from '../teams/plan.js';
 import type { UserDoc } from './service.js';
 
 declare module 'express-serve-static-core' {
   interface Request {
     /** Authenticated account (undefined for guests). */
     user?: UserDoc;
+    /** The plan that applies: their own or their team's, whichever is better (undefined for guests). */
+    effectivePlan?: import('@pdftools/shared').PlanId;
     /** Counter keys for quota accounting: user id, or guest cookie + client IP. */
     usageKeys: string[];
   }
@@ -31,6 +34,7 @@ export function identity(env: Env, accountsEnabled: boolean): RequestHandler {
         const user = id ? await UserModel.findById(id).catch(() => null) : null;
         if (!user || user.status !== 'active') throw new HttpError(401, 'invalid_token', 'Session expired. Please sign in again.');
         req.user = user;
+        req.effectivePlan = (await planInfo(user)).effectivePlan;
         req.owner = `u:${user._id}`;
         req.usageKeys = [req.owner];
         return next();

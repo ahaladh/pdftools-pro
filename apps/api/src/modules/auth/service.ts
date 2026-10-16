@@ -9,6 +9,7 @@ import { newId } from '../../utils/security.js';
 import type { Mailer } from '../mail/mailer.js';
 import type { AuditService } from './audit.js';
 import { burnPasswordCheck, hashPassword, verifyPassword } from './password.js';
+import { planInfo } from '../teams/plan.js';
 import { newOpaqueToken, sha256, signAccessToken, signMfaChallenge, verifyMfaChallenge } from './tokens.js';
 import { hashRecovery, looksLikeRecovery, newRecoveryCodes, newTotpSecret, openSecret, otpauthUri, sealSecret, base32Encode, verifyTotp } from './totp.js';
 
@@ -18,25 +19,26 @@ const MAX_FAILED = 5, LOCK_MS = 15 * 60_000, RESET_TTL_MS = 60 * 60_000, RESEND_
 
 export interface Session { user: UserView; accessToken: string; expiresIn: number; refresh: { token: string; expires: Date } }
 
-export function userView(u: UserDoc): UserView {
+export function userView(u: UserDoc, extra?: { effectivePlan: PlanId; team?: { id: string; name: string; role: import('@pdftools/shared').TeamRole; plan: PlanId } }): UserView {
   const b = u.billing;
   return {
     id: String(u._id), email: u.email, name: u.name ?? '', role: u.role, plan: u.plan as PlanId, createdAt: new Date(u.createdAt).toISOString(),
     emailVerified: !!u.emailVerifiedAt, twoFactorEnabled: !!u.twoFactor?.enabledAt,
+    effectivePlan: extra?.effectivePlan ?? (u.plan as PlanId), ...(extra?.team ? { team: extra.team } : {}),
     ...(b?.subscriptionId ? { subscription: { status: b.status, plan: b.plan, currentPeriodEnd: b.currentPeriodEnd?.toISOString(), cancelAtPeriodEnd: b.cancelAtPeriodEnd } } : {}),
   };
 }
 
 export class AuthService {
   constructor(private env: Env, private mailer: Mailer, private audit: AuditService, private log: Logger,
-    private hooks: { deleteUserData: (owner: string) => Promise<void>; cancelSubscription: (u: UserDoc) => Promise<void> }) {}
+    private hooks: { deleteUserData: (owner: string) => Promise<void>; cancelSubscription: (u: UserDoc) => Promise<void>; leaveTeam: (u: UserDoc) => Promise<void> }) {}
 
   private async issue(user: UserDoc, req: Request, family = newId(12), since = new Date()): Promise<Session> {
     const token = newOpaqueToken();
     const expires = new Date(Date.now() + this.env.REFRESH_TOKEN_TTL_DAYS * 86400_000);
     await SessionModel.create({ userId: user._id, tokenHash: sha256(token), family, since, expiresAt: expires, userAgent: String(req.get('user-agent') ?? '').slice(0, 300) });
     const accessToken = await signAccessToken(this.env.JWT_ACCESS_SECRET, String(user._id), user.role, this.env.ACCESS_TOKEN_TTL_MINUTES);
-    return { user: userView(user), accessToken, expiresIn: this.env.ACCESS_TOKEN_TTL_MINUTES * 60, refresh: { token, expires } };
+    return { user: userView(user, await planInfo(user)), accessToken, expiresIn: this.env.ACCESS_TOKEN_TTL_MINUTES * 60, refresh: { token, expires } };
   }
 
   async register(req: Request, d: { email: string; password: string; name: string }): Promise<Session> {
@@ -286,6 +288,7 @@ export class AuthService {
 
   async deleteAccount(req: Request, user: UserDoc, password: string) {
     if (!(await verifyPassword(password, user.passwordHash))) throw new HttpError(403, 'invalid_credentials', 'Password is incorrect.');
+    await this.hooks.leaveTeam(user); // may refuse: an owner of a team with other members must hand it over first
     await this.hooks.cancelSubscription(user).catch((e) => this.log.error({ err: e }, 'subscription cancel failed during account deletion'));
     await this.hooks.deleteUserData(`u:${user._id}`);
     await SessionModel.deleteMany({ userId: user._id });

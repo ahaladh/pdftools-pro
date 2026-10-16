@@ -9,7 +9,7 @@ import type { UsageStore } from './store.js';
 export class Entitlements {
   constructor(private settings: SettingsService, private usage: UsageStore, private jobs: JobStore, private storageMB?: () => Promise<number>, private maxStorageMB = 0) {}
 
-  planId(req: Request): PlanId { return req.user ? (req.user.plan as PlanId) : 'guest'; }
+  planId(req: Request): PlanId { return req.user ? (req.effectivePlan ?? (req.user.plan as PlanId)) : 'guest'; }
   async planFor(req: Request): Promise<PlanConfig> { return this.settings.plan(this.planId(req)); }
 
   /** Throws an HttpError describing exactly which limit blocked the request. */

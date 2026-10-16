@@ -56,9 +56,9 @@ export function lastResetLink(): string {
 export const uniqueEmail = (p: string) => `${p}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}@example.com`;
 
 /** The most recent link of a given kind (e.g. 'verify-email') that the (dev) mailer wrote to the API log. */
-export function lastEmailLink(kind: 'verify-email' | 'reset-password'): string {
+export function lastEmailLink(kind: 'verify-email' | 'reset-password' | 'team/join'): string {
   const log = readFileSync(readState().apiLog, 'utf8');
-  const links = [...log.matchAll(new RegExp(`${kind}\\?token=([\\w-]+)`, 'g'))];
+  const links = [...log.matchAll(new RegExp(kind.replace('/', '\\/') + '\\?token=([\\w-]+)', 'g'))];
   if (!links.length) throw new Error(`no ${kind} link in API log`);
   return `/${kind}?token=${links[links.length - 1]![1]}`;
 }

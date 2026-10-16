@@ -49,6 +49,32 @@ const sessionSchema = new Schema({
   userAgent: { type: String, maxlength: 300 },
 }, { timestamps: true });
 
+/** A team owns a subscription and shares its plan with its members. A person is in at most one team (unique member.userId). */
+const teamSchema = new Schema({
+  name: { type: String, required: true, trim: true, maxlength: 60 },
+  ownerId: { type: Schema.Types.ObjectId, required: true, index: true },
+  /** What the team pays for. Follows the subscription: back to 'free' when it ends. */
+  plan: { type: String, enum: ['free', 'pro', 'business'], default: 'free' },
+  billing: { customerId: String, subscriptionId: String, status: String, plan: String, currentPeriodEnd: Date, cancelAtPeriodEnd: Boolean },
+}, { timestamps: true });
+
+const memberSchema = new Schema({
+  teamId: { type: Schema.Types.ObjectId, required: true, index: true },
+  userId: { type: Schema.Types.ObjectId, required: true, unique: true },
+  role: { type: String, enum: ['owner', 'admin', 'member'], required: true },
+}, { timestamps: true });
+
+/** Single-use, email-bound invitation. Only a hash of the token is stored. */
+const inviteSchema = new Schema({
+  teamId: { type: Schema.Types.ObjectId, required: true, index: true },
+  email: { type: String, required: true, lowercase: true, trim: true },
+  role: { type: String, enum: ['admin', 'member'], default: 'member' },
+  tokenHash: { type: String, required: true, unique: true },
+  invitedBy: { type: Schema.Types.ObjectId, required: true },
+  expiresAt: { type: Date, required: true },
+}, { timestamps: true });
+inviteSchema.index({ teamId: 1, email: 1 }, { unique: true });
+
 const jobSchema = new Schema({
   id: { type: String, required: true, unique: true },
   owner: { type: String, required: true, index: true },
@@ -105,6 +131,9 @@ export const UsageModel = model('Usage', usageSchema);
 export const SettingModel = model('Setting', settingSchema);
 export const AuditModel = model('Audit', auditSchema);
 export const BillingEventModel = model('BillingEvent', billingEventSchema);
+export const TeamModel = model('Team', teamSchema);
+export const MemberModel = model('TeamMember', memberSchema);
+export const InviteModel = model('TeamInvite', inviteSchema);
 
 export async function connectDb(uri: string) {
   mongoose.set('strictQuery', true);

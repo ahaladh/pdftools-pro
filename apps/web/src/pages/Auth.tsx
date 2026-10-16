@@ -176,7 +176,40 @@ export function RequireAuth({ children, admin }: { children: ReactNode; admin?: 
   const { status, user, init } = useAuth();
   if (status === 'unavailable') return <div role="alert" className="p-12 text-center"><p className="text-slate-700">We couldn't reach the server to restore your session.</p><Button className="mt-4" onClick={() => void init()}>Try again</Button></div>;
   if (status === 'loading') return <p className="p-12 text-center text-slate-500" role="status">Loading…</p>;
-  if (status === 'anonymous') return <Navigate to={`/signin?next=${encodeURIComponent(window.location.pathname)}`} replace />;
+  // Keep the query string: links such as /team/join?token=... must survive the trip through sign-in.
+  if (status === 'anonymous') return <Navigate to={`/signin?next=${encodeURIComponent(window.location.pathname + window.location.search)}`} replace />;
   if (admin && user?.role !== 'admin') return <Navigate to="/account" replace />; // UX only; the API enforces this
   return <>{children}</>;
+}
+
+/** Landing page for a team invitation link. The invitation only works for the email address it was sent to, once. */
+export function JoinTeam() {
+  useSeo({ title: 'Join a team', description: 'Accept a team invitation.', path: '/team/join', noindex: true });
+  const [params] = useSearchParams();
+  const token = params.get('token') ?? '';
+  const nav = useNavigate();
+  const user = useAuth((s) => s.user);
+  const setUser = useAuth((s) => s.setUser);
+  const [state, setState] = useState<'ready' | 'working' | 'failed'>('ready');
+  const [error, setError] = useState('');
+  const join = async () => {
+    setState('working');
+    try {
+      await api.teams.accept(token);
+      setUser(await api.me.get()); // the user now carries the team and its plan
+      nav('/account');
+    } catch (e) { setState('failed'); setError(e instanceof Error ? e.message : 'Could not join the team.'); }
+  };
+  return (
+    <Shell title="Join a team" subtitle={user ? `Signed in as ${user.email}` : undefined}>
+      {!token ? <p role="alert" className="text-sm text-red-700">This link is incomplete. Open the whole link from the invitation email.</p> : (
+        <div className="space-y-4">
+          <p className="text-sm text-slate-700">You have been invited to a team. Joining shares the team's plan with you. You can leave at any time.</p>
+          {state === 'failed' && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}
+          <Button className="w-full" disabled={state === 'working'} onClick={join}>{state === 'working' ? 'Joining…' : 'Join team'}</Button>
+          <p className="text-center text-sm"><Link to="/account" className="text-slate-600 underline">Not now</Link></p>
+        </div>
+      )}
+    </Shell>
+  );
 }

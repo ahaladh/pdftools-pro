@@ -3,6 +3,7 @@ import { changePasswordSchema, profileSchema, reauthSchema, twoFactorConfirmSche
 import { z } from 'zod';
 import { ok, wrap } from '../../middleware/common.js';
 import { requireUser } from '../auth/middleware.js';
+import { planInfo } from '../teams/plan.js';
 import { userView, type AuthService } from '../auth/service.js';
 import type { JobService } from '../jobs/service.js';
 import type { SettingsService } from '../settings/service.js';
@@ -13,13 +14,13 @@ export function accountRoutes(deps: { auth: AuthService; jobs: JobService; usage
   const r = Router();
   r.use(requireUser);
 
-  r.get('/', wrap(async (req, res) => ok(res, userView(req.user))));
+  r.get('/', wrap(async (req, res) => ok(res, userView(req.user, await planInfo(req.user)))));
 
   r.patch('/', wrap(async (req, res) => {
     const { name } = profileSchema.parse(req.body);
     req.user.name = name;
     await req.user.save();
-    ok(res, userView(req.user));
+    ok(res, userView(req.user, await planInfo(req.user)));
   }));
 
   r.post('/password', wrap(async (req, res) => {
@@ -48,7 +49,7 @@ export function accountRoutes(deps: { auth: AuthService; jobs: JobService; usage
   }));
 
   r.get('/usage', wrap(async (req, res) => {
-    const plan = await deps.settings.plan(req.user.plan);
+    const plan = await deps.settings.plan(req.effectivePlan ?? req.user.plan);
     const series = await deps.usage.series(`u:${req.user._id}`, 30);
     const view: UsageView = {
       plan: plan.id,
