@@ -10,6 +10,7 @@ import { assertImageSize, baseName, decodeFailure, one, parseOptions, savePdf, t
 import { tokenize, hexString, num, type Op, type Tok } from './content-stream.js';
 import { dictGet, familyOf, loadFont, look, nameOf, streamBytes, type FontInfo } from './pdf-fonts.js';
 import { pageMapper } from './tools3.js';
+import { reachableTags } from './pdf-graph.js';
 
 type M = [number, number, number, number, number, number];
 const I: M = [1, 0, 0, 1, 0, 0];
@@ -365,20 +366,7 @@ export const editContent: Processor = async (ctx) => {
   // ---- delete image objects (and their masks) that the document no longer reaches, plus our replaced content streams.
   // Reachability from the catalog is the test, not "is anything still pointing at it": the old shared resource
   // dictionary of a page we rewired still points at the image but no page can ever use it.
-  const reachable = () => {
-    const seen = new Set<string>();
-    const stack: PDFObject[] = [];
-    const t = pdfCtx.trailerInfo as { Root?: PDFObject; Info?: PDFObject; Encrypt?: PDFObject };
-    for (const r of [t.Root, t.Info, t.Encrypt]) if (r) stack.push(r);
-    while (stack.length) {
-      const o = stack.pop()!;
-      if (o instanceof PDFRef) { if (seen.has(o.tag)) continue; seen.add(o.tag); const t2 = pdfCtx.lookup(o); if (t2) stack.push(t2); continue; }
-      if (o instanceof PDFArray) { for (let i = 0; i < o.size(); i++) stack.push(o.get(i)); continue; }
-      const d = o instanceof PDFStream ? o.dict : o instanceof PDFDict ? o : undefined;
-      if (d) for (const [, v] of d.entries()) stack.push(v);
-    }
-    return seen;
-  };
+  const reachable = () => reachableTags(pdfCtx);
   let removedObjects = 0;
   const imageRefs = new Map(orphanCandidates.map((r) => [r.tag, r]));
   for (let round = 0; round < 4 && imageRefs.size; round++) {

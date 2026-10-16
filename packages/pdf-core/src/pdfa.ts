@@ -3,6 +3,7 @@ import { constants } from 'node:fs';
 import { join } from 'node:path';
 import { ToolError } from './errors.js';
 import { loadPdfFile } from './pdf.js';
+import { stripActiveContent } from './active-content.js';
 import { runEngine, runEngineOut, baseName, one, parseOptions, PDF_MIME, type Processor } from './helpers.js';
 
 const ICC_CANDIDATES = [
@@ -30,7 +31,11 @@ const JVM_OPTS = '-Xmx512m -Xss1m -XX:ReservedCodeCacheSize=64m -XX:CompressedCl
 const pdfToPdfa: Processor = async (ctx) => {
   const o = parseOptions('pdf-to-pdfa', ctx.options);
   const f = one(ctx);
-  await loadPdfFile(f.path, ctx.maxPages); // rejects damaged and encrypted files with a clear message
+  const src = await loadPdfFile(f.path, ctx.maxPages); // rejects damaged and encrypted files with a clear message
+  // Active content is removed by us, not left to the converter (its behaviour differs between Ghostscript versions).
+  const removedActive = stripActiveContent(src);
+  const input = join(ctx.workDir, 'pdfa-input.pdf');
+  await writeFile(input, await src.save());
   const icc = await findProfile();
   if (/[()\\\r\n]/.test(icc)) throw new ToolError('tool_unavailable', 'The ICC profile path contains unsupported characters.');
   const def = join(ctx.workDir, 'pdfa-def.ps');
@@ -47,13 +52,13 @@ const pdfToPdfa: Processor = async (ctx) => {
   await runEngine(ctx, 'gs', [
     '-q', `-dPDFA=${o.level[0]}`, '-dBATCH', '-dNOPAUSE', '-dNOOUTERSAVE', '-dPDFACompatibilityPolicy=1',
     `--permit-file-read=${icc}`, '-sColorConversionStrategy=RGB', '-sProcessColorModel=DeviceRGB',
-    '-dEmbedAllFonts=true', '-dSubsetFonts=true', '-sDEVICE=pdfwrite', `-sOutputFile=${out}`, def, f.path,
+    '-dEmbedAllFonts=true', '-dSubsetFonts=true', '-sDEVICE=pdfwrite', `-sOutputFile=${out}`, def, input,
   ]);
   try { if ((await readFile(out)).length === 0) throw new Error('empty'); } catch { throw new ToolError('engine_failed', 'The PDF could not be converted to PDF/A.'); }
 
   const vera = process.env.VERAPDF_BIN;
   const warnings = [
-    'PDF/A forbids encryption, JavaScript, audio/video and external content, so those were removed. Document metadata and interactive form fields may not carry over unchanged.',
+    `PDF/A forbids encryption, JavaScript, audio/video and external content, so those were removed${removedActive ? ` (${removedActive} active-content item${removedActive === 1 ? '' : 's'} stripped)` : ''}. Document metadata and interactive form fields may not carry over unchanged.`,
   ];
   let validated: string;
   if (vera && await exists(vera, constants.X_OK)) {
