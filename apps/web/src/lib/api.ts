@@ -93,6 +93,10 @@ export const api = {
   admin: {
     dashboard: () => call<AdminDashboard>('/api/admin/dashboard'),
     users: (q: { page: number; q?: string }) => call<Paged<AdminUser>>(`/api/admin/users?page=${q.page}&pageSize=20${q.q ? `&q=${encodeURIComponent(q.q)}` : ''}`),
+    teams: (q: { page: number; q?: string }) => call<Paged<import('@pdftools/shared').AdminTeamRow>>(`/api/admin/teams?page=${q.page}&pageSize=15${q.q ? `&q=${encodeURIComponent(q.q)}` : ''}`),
+    team: (id: string) => call<import('@pdftools/shared').AdminTeamDetail>(`/api/admin/teams/${encodeURIComponent(id)}`),
+    transferTeam: (id: string, userId: string) => call<import('@pdftools/shared').AdminTeamDetail>(`/api/admin/teams/${encodeURIComponent(id)}/transfer`, json('POST', { userId })),
+    deleteTeam: (id: string) => call<{ deleted: boolean }>(`/api/admin/teams/${encodeURIComponent(id)}`, { method: 'DELETE' }),
     resetTwoFactor: (id: string) => call<AdminUser>(`/api/admin/users/${id}/2fa/reset`, { method: 'POST' }),
     updateUser: (id: string, patch: Partial<Pick<AdminUser, 'role' | 'plan' | 'status'>>) => call<AdminUser>(`/api/admin/users/${id}`, json('PATCH', patch)),
     jobs: (q: { page: number; state?: string; tool?: string }) => call<Paged<AdminJob>>(`/api/admin/jobs?page=${q.page}&pageSize=20${q.state ? `&state=${q.state}` : ''}${q.tool ? `&tool=${q.tool}` : ''}`),
@@ -133,6 +137,7 @@ export interface AdminUser extends UserView { status: 'active' | 'disabled'; las
 export interface AdminJob { id: string; owner: string; tool: string; state: string; plan: string; createdAt: string; error?: string; bytes?: number }
 export interface AdminAudit { _id: string; at: string; actor: string; action: string; target?: string; ip?: string }
 export interface AdminDashboard {
+  teams: { total: number; paid: number };
   users: { total: number; active7d: number; admins: number; /** Administrators with no second sign-in step. */ adminsWithoutTwoFactor: number; twoFactorRequired: boolean; byPlan: Record<string, number> };
   jobs: { total: number; byState: Record<string, number>; completed: number; failed: number };
   queue: { waiting: number; active: number };

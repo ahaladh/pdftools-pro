@@ -11,7 +11,7 @@ import { useSeo } from '@/hooks/useSeo';
 import { useAuth } from '@/stores/auth';
 import { Link } from 'react-router-dom';
 
-const TABS = ['Overview', 'Users', 'Jobs', 'Usage', 'Settings', 'Audit log'] as const;
+const TABS = ['Overview', 'Users', 'Teams', 'Jobs', 'Usage', 'Settings', 'Audit log'] as const;
 type Tab = (typeof TABS)[number];
 
 export default function Admin() {
@@ -43,6 +43,7 @@ export default function Admin() {
       <div role="tabpanel" id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} className="mt-6">
         {tab === 'Overview' && <Overview />}
         {tab === 'Users' && <Users />}
+        {tab === 'Teams' && <Teams />}
         {tab === 'Jobs' && <Jobs />}
         {tab === 'Usage' && <UsageTab />}
         {tab === 'Settings' && <SettingsTab />}
@@ -65,6 +66,7 @@ function Overview() {
     <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="Registered users" value={d.users.total} sub={`${d.users.active7d} active in 7 days`} />
+        <Stat label="Teams" value={d.teams.total} sub={`${d.teams.paid} on a paid plan`} />
         <Stat label="Total jobs" value={d.jobs.total} sub={`${d.jobs.completed} completed · ${d.jobs.failed} failed`} />
         <Stat label="Queue" value={`${d.queue.waiting} waiting`} sub={`${d.queue.active} running`} />
         <Stat label="Storage in use" value={formatBytes(d.storage.bytes)} />
@@ -137,6 +139,86 @@ function Users() {
       </table></div>
       {q.data && <Pager page={page} total={q.data.total} size={q.data.pageSize} onPage={setPage} />}
     </div>
+  );
+}
+
+function Teams() {
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [applied, setApplied] = useState('');
+  const [open, setOpen] = useState<string | null>(null);
+  const q = useQuery({ queryKey: ['admin-teams', page, applied], queryFn: () => api.admin.teams({ page, q: applied || undefined }) });
+  return (
+    <div>
+      <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); setPage(1); setApplied(search.trim()); }}>
+        <TextInput className="max-w-xs" aria-label="Search teams by name or owner email" placeholder="Team name or owner email…" value={search} onChange={(e) => setSearch(e.target.value)} />
+        <Button type="submit" variant="secondary">Search</Button>
+      </form>
+      <ErrorBox e={q.error} />
+      <div className="mt-3 overflow-x-auto"><table className="w-full text-left text-sm">
+        <thead className="text-xs uppercase text-slate-500"><tr><th className="py-2">Team</th><th>Owner</th><th>Plan</th><th>People</th><th>Used today</th><th>Subscription</th><th>Created</th></tr></thead>
+        <tbody>{q.data?.rows.map((t) => (
+          <tr key={t.id} className="border-t border-slate-100">
+            <td className="py-2 pr-3"><button type="button" className="font-medium text-brand-700 underline" aria-label={`Open team ${t.name}`} onClick={() => setOpen(t.id)}>{t.name}</button></td>
+            <td className="pr-3">{t.owner.email}</td>
+            <td className="capitalize">{t.plan}</td>
+            <td>{t.members} / {t.seats}{t.seatsUsed > t.members && <span className="ml-1 text-xs text-slate-500">(+{t.seatsUsed - t.members} invited)</span>}</td>
+            <td>{t.pool ? `${t.pool.opsToday} / ${t.pool.limit}` : '—'}</td>
+            <td>{t.subscription ? `${t.subscription.status}${t.subscription.cancelAtPeriodEnd ? ' (ends)' : ''}` : '—'}</td>
+            <td>{new Date(t.createdAt).toLocaleDateString()}</td>
+          </tr>))}</tbody>
+      </table></div>
+      {q.data && q.data.rows.length === 0 && <p className="mt-3 text-sm text-slate-500">No teams{applied ? ' match that search' : ' yet'}.</p>}
+      {q.data && <Pager page={page} total={q.data.total} size={q.data.pageSize} onPage={setPage} />}
+      {open && <TeamDetailPanel key={open} id={open} onClose={() => setOpen(null)} />}
+    </div>
+  );
+}
+
+function TeamDetailPanel({ id, onClose }: { id: string; onClose: () => void }) {
+  const qc = useQueryClient();
+  const d = useQuery({ queryKey: ['admin-team', id], queryFn: () => api.admin.team(id) });
+  const refresh = () => { void qc.invalidateQueries({ queryKey: ['admin-teams'] }); void qc.invalidateQueries({ queryKey: ['admin-team', id] }); };
+  const transfer = useMutation({ mutationFn: (userId: string) => api.admin.transferTeam(id, userId), onSuccess: refresh });
+  const del = useMutation({ mutationFn: () => api.admin.deleteTeam(id), onSuccess: () => { void qc.invalidateQueries({ queryKey: ['admin-teams'] }); void qc.invalidateQueries({ queryKey: ['admin-dash'] }); onClose(); } });
+  const t = d.data;
+  return (
+    <Card className="mt-6 p-5" role="region" aria-label="Team details">
+      <div className="flex flex-wrap items-center gap-3">
+        <h2 className="text-lg font-semibold">{t?.name ?? 'Team'}</h2>
+        <Button size="sm" variant="ghost" onClick={onClose}>Close</Button>
+      </div>
+      <ErrorBox e={d.error ?? transfer.error ?? del.error} />
+      {t && (
+        <>
+          <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-4">
+            <div><dt className="text-slate-500">Plan</dt><dd className="capitalize">{t.plan}</dd></div>
+            <div><dt className="text-slate-500">Seats</dt><dd>{t.seatsUsed} of {t.seats} ({t.pendingInvites} invited)</dd></div>
+            <div><dt className="text-slate-500">Shared allowance today</dt><dd>{t.pool ? `${t.pool.opsToday} / ${t.pool.limit}` : 'none (free plan)'}</dd></div>
+            <div><dt className="text-slate-500">Subscription</dt><dd>{t.subscription ? `${t.subscription.status}${t.currentPeriodEnd ? `, to ${new Date(t.currentPeriodEnd).toLocaleDateString()}` : ''}` : 'none'}</dd></div>
+          </dl>
+          <div className="mt-4 overflow-x-auto"><table className="w-full text-left text-sm" aria-label="Team members">
+            <thead className="text-xs uppercase text-slate-500"><tr><th className="py-2">Member</th><th>Role</th><th>Email confirmed</th><th>Used today</th><th>Joined</th><th /></tr></thead>
+            <tbody>{t.memberList.map((m) => (
+              <tr key={m.userId} className="border-t border-slate-100">
+                <td className="py-2 pr-3">{m.email}{m.name && <span className="ml-2 text-xs text-slate-500">{m.name}</span>}</td>
+                <td className="capitalize">{m.role}</td>
+                <td>{m.emailVerified ? 'yes' : 'no'}</td>
+                <td>{m.opsToday ?? '—'}</td>
+                <td>{new Date(m.joinedAt).toLocaleDateString()}</td>
+                <td className="text-right">{m.role !== 'owner' && (
+                  <Button size="sm" variant="secondary" aria-label={`Make ${m.email} the owner`} disabled={transfer.isPending || !m.emailVerified} title={m.emailVerified ? undefined : 'They have not confirmed their email address, so they cannot take over billing'}
+                    onClick={() => { if (window.confirm(`Make ${m.email} the owner of “${t.name}”? The current owner (${t.owner.email}) stays on as an admin. Use this only when the owner cannot be reached; it is recorded in the audit log.`)) transfer.mutate(m.userId); }}>Make owner</Button>)}</td>
+              </tr>))}</tbody>
+          </table></div>
+          <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-4">
+            <Button variant="danger" className="border border-red-200" disabled={del.isPending}
+              onClick={() => { if (window.confirm(`Delete the team “${t.name}”? ${t.subscription ? 'Its subscription is cancelled first. ' : ''}Its ${t.members} member${t.members === 1 ? '' : 's'} keep their accounts but lose the team's plan. This cannot be undone.`)) del.mutate(); }}>Delete team</Button>
+            <p className="text-xs text-slate-500">Owner: {t.owner.email}. Both actions are written to the audit log with your name.</p>
+          </div>
+        </>
+      )}
+    </Card>
   );
 }
 

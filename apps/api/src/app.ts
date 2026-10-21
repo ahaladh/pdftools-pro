@@ -175,7 +175,7 @@ export async function createApp(deps: AppDeps = {}) {
     app.use('/api/me', accountRoutes({ auth, securityKeys, jobs, usage, settings, refreshCookie: (res, s) => setRefreshCookie(env, res, s) }));
     app.use('/api/billing', billingRoutes(billing, { requireVerifiedEmail: env.REQUIRE_VERIFIED_EMAIL, teamOf: (u) => teams.context(u) }));
     app.use('/api/teams', teamRoutes(teams));
-    app.use('/api/admin', adminRoutes({ env, jobs, jobStore: jobStore as MongoJobStore, settings, audit, auth }));
+    app.use('/api/admin', adminRoutes({ teams, env, jobs, jobStore: jobStore as MongoJobStore, settings, audit, auth }));
   } else {
     for (const p of ['/api/auth', '/api/me', '/api/billing', '/api/teams', '/api/admin']) app.use(p, disabled);
   }

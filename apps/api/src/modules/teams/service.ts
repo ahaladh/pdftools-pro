@@ -1,6 +1,6 @@
 import type { Request } from 'express';
 import type { Logger } from 'pino';
-import type { PlanId, TeamInviteView, TeamMemberView, TeamRole, TeamView } from '@pdftools/shared';
+import type { AdminTeamDetail, AdminTeamRow, PlanId, TeamInviteView, TeamMemberView, TeamRole, TeamView } from '@pdftools/shared';
 import type { Env } from '../../config/env.js';
 import { InviteModel, MemberModel, TeamModel, UserModel } from '../../db/models.js';
 import { HttpError } from '../../utils/errors.js';
@@ -222,10 +222,102 @@ export class TeamService {
     if (!target) throw new HttpError(404, 'not_found', 'Choose another member of your team.');
     const next = await UserModel.findById(userId);
     if (!next?.emailVerifiedAt) throw new HttpError(409, 'email_unverified', 'That person has not confirmed their email address yet, so they cannot take over billing.');
-    target.role = 'owner'; member.role = 'admin';
-    team.ownerId = target.userId;
-    await Promise.all([target.save(), member.save(), team.save()]);
+    await this.handOver(team, member, target);
     await this.audit.record(`u:${user._id}`, 'team.ownership_transferred', { req, target: `u:${userId}`, meta: { team: String(team._id) } });
+  }
+
+  /** The new owner takes over (and with it billing); the old owner stays on as an admin. */
+  private async handOver(team: Doc, oldOwner: Doc, target: Doc) {
+    target.role = 'owner'; oldOwner.role = 'admin';
+    team.ownerId = target.userId;
+    await Promise.all([target.save(), oldOwner.save(), team.save()]);
+  }
+
+  // ------------------------------------------------------------------ administrator's view (the admin routes gate access)
+  private async adminRows(teams: Doc[]): Promise<AdminTeamRow[]> {
+    const ids = teams.map((t) => t._id);
+    const [counts, invites, owners] = await Promise.all([
+      MemberModel.aggregate([{ $match: { teamId: { $in: ids } } }, { $group: { _id: '$teamId', n: { $sum: 1 } } }]) as Promise<{ _id: unknown; n: number }[]>,
+      InviteModel.aggregate([{ $match: { teamId: { $in: ids }, expiresAt: { $gt: new Date() } } }, { $group: { _id: '$teamId', n: { $sum: 1 } } }]) as Promise<{ _id: unknown; n: number }[]>,
+      UserModel.find({ _id: { $in: teams.map((t) => t.ownerId) } }).select('email'),
+    ]);
+    const members = new Map(counts.map((c) => [String(c._id), c.n])), pending = new Map(invites.map((c) => [String(c._id), c.n]));
+    const email = new Map(owners.map((u: Doc) => [String(u._id), u.email as string]));
+    return Promise.all(teams.map(async (t): Promise<AdminTeamRow> => {
+      const n = members.get(String(t._id)) ?? 0;
+      const b = t.billing;
+      const pool = t.plan === 'free' ? undefined : { opsToday: await this.usage.ops(poolKey(String(t._id))), limit: (await this.settings.plan(t.plan)).dailyOps * Math.max(1, n) };
+      return {
+        id: String(t._id), name: t.name, plan: t.plan, owner: { id: String(t.ownerId), email: email.get(String(t.ownerId)) ?? '(deleted account)' },
+        members: n, seats: this.seatsFor(t.plan), seatsUsed: n + (pending.get(String(t._id)) ?? 0),
+        ...(pool ? { pool } : {}),
+        ...(b?.subscriptionId ? { subscription: { status: b.status, plan: b.plan, cancelAtPeriodEnd: b.cancelAtPeriodEnd } } : {}),
+        createdAt: new Date(t.createdAt).toISOString(),
+      };
+    }));
+  }
+
+  async adminList(opts: { page: number; pageSize: number; q?: string }) {
+    const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const filter: Record<string, unknown> = {};
+    if (opts.q) {
+      const owners = await UserModel.find({ email: { $regex: escape(opts.q.toLowerCase()) } }).select('_id').limit(200);
+      filter.$or = [{ name: { $regex: escape(opts.q), $options: 'i' } }, { ownerId: { $in: owners.map((u: Doc) => u._id) } }];
+    }
+    const [teams, total] = await Promise.all([
+      TeamModel.find(filter).sort({ createdAt: -1 }).skip((opts.page - 1) * opts.pageSize).limit(opts.pageSize), TeamModel.countDocuments(filter),
+    ]);
+    return { rows: await this.adminRows(teams), total, page: opts.page, pageSize: opts.pageSize };
+  }
+
+  private async adminTeam(id: string): Promise<Doc> {
+    const team = isId(id) ? await TeamModel.findById(id) : null;
+    if (!team) throw new HttpError(404, 'not_found', 'Team not found.');
+    return team;
+  }
+
+  async adminDetail(id: string): Promise<AdminTeamDetail> {
+    const team = await this.adminTeam(id);
+    const [row] = await this.adminRows([team]);
+    const members = await MemberModel.find({ teamId: team._id }).sort({ createdAt: 1 });
+    const users = new Map((await UserModel.find({ _id: { $in: members.map((m: Doc) => m.userId) } })).map((u: Doc) => [String(u._id), u]));
+    const shares = team.plan === 'free' ? {} : await this.usage.opsByPrefix(`tm:${team._id}:`);
+    return {
+      ...row!,
+      pendingInvites: row!.seatsUsed - row!.members,
+      ...(team.billing?.currentPeriodEnd ? { currentPeriodEnd: new Date(team.billing.currentPeriodEnd).toISOString() } : {}),
+      memberList: members.map((m: Doc) => {
+        const u = users.get(String(m.userId));
+        return { userId: String(m.userId), email: u?.email ?? '', name: u?.name ?? '', role: m.role, joinedAt: new Date(m.createdAt).toISOString(), emailVerified: !!u?.emailVerifiedAt,
+          ...(team.plan === 'free' ? {} : { opsToday: shares[memberKey(String(team._id), String(m.userId))] ?? 0 }) };
+      }),
+    };
+  }
+
+  /**
+   * Support path for a team whose owner cannot be reached (left the company, lost access): hand the team to one of its own
+   * members. Same rules as the owner doing it (the new owner must be a member with a confirmed email, since they take over
+   * billing), and always written to the audit log with the acting administrator.
+   */
+  async adminTransfer(req: Request, admin: UserDoc, id: string, userId: string) {
+    const team = await this.adminTeam(id);
+    const current = await MemberModel.findOne({ teamId: team._id, role: 'owner' });
+    const target = await MemberModel.findOne({ teamId: team._id, userId });
+    if (!target) throw new HttpError(404, 'not_found', 'That person is not a member of this team.');
+    if (target.role === 'owner') throw new HttpError(409, 'already_owner', 'That person already owns the team.');
+    if (!current) throw new HttpError(409, 'no_owner', 'This team has no owner membership to hand over; contact engineering.');
+    const next = await UserModel.findById(userId);
+    if (!next?.emailVerifiedAt) throw new HttpError(409, 'email_unverified', 'That person has not confirmed their email address yet, so they cannot take over billing.');
+    await this.handOver(team, current, target);
+    await this.audit.record(`u:${admin._id}`, 'admin.team_ownership_transferred', { req, target: `t:${team._id}`, meta: { from: String(current.userId), to: userId } });
+  }
+
+  /** Delete a team (abuse, or an abandoned team): its subscription is cancelled first, and if that fails the team is kept. */
+  async adminDelete(req: Request, admin: UserDoc, id: string) {
+    const team = await this.adminTeam(id);
+    const members = await MemberModel.countDocuments({ teamId: team._id });
+    await this.destroy(team);
+    await this.audit.record(`u:${admin._id}`, 'admin.team_deleted', { req, target: `t:${team._id}`, meta: { members, plan: team.plan } });
   }
 
   async deleteTeam(req: Request, user: UserDoc) {

@@ -2,12 +2,14 @@ import { Router } from 'express';
 import os from 'node:os';
 import { z } from 'zod';
 import { appSettingsSchema, PLAN_IDS } from '@pdftools/shared';
-import { AuditModel, SessionModel, UsageModel, UserModel } from '../../db/models.js';
+import { AuditModel, SessionModel, TeamModel, UsageModel, UserModel } from '../../db/models.js';
 import { ok, wrap } from '../../middleware/common.js';
 import { HttpError } from '../../utils/errors.js';
 import type { AuditService } from '../auth/audit.js';
 import { requireAdmin, requireAdminTwoFactor } from '../auth/middleware.js';
 import type { Env } from '../../config/env.js';
+import { adminTransferSchema } from '@pdftools/shared';
+import type { TeamService } from '../teams/service.js';
 import { adminTwoFactorRequired } from '../auth/policy.js';
 import type { AuthService } from '../auth/service.js';
 import { secondFactorOn, userView } from '../auth/service.js';
@@ -20,13 +22,14 @@ const page = z.object({ page: z.coerce.number().int().min(1).default(1), pageSiz
 const COUNTED_KEYS = { $not: /^(ip|tm):/ };
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-export function adminRoutes(deps: { env: Env; jobs: JobService; jobStore: MongoJobStore; settings: SettingsService; audit: AuditService; auth: AuthService }) {
+export function adminRoutes(deps: { teams: TeamService; env: Env; jobs: JobService; jobStore: MongoJobStore; settings: SettingsService; audit: AuditService; auth: AuthService }) {
   const r = Router();
   r.use(requireAdmin); // every admin endpoint: authenticated AND role=admin, checked server-side
   r.use(requireAdminTwoFactor(deps.env)); // ...and, when the policy is on, protected by a second sign-in step
 
   r.get('/dashboard', wrap(async (_req, res) => {
     const since = new Date(Date.now() - 7 * 86400_000);
+    const [teamTotal, teamPaid] = await Promise.all([TeamModel.countDocuments(), TeamModel.countDocuments({ plan: { $ne: 'free' } })]);
     const [total, active7d, admins, adminsWithoutTwoFactor, byPlanRows, states] = await Promise.all([
       UserModel.countDocuments(), UserModel.countDocuments({ lastLoginAt: { $gte: since } }), UserModel.countDocuments({ role: 'admin' }),
       UserModel.countDocuments({ role: 'admin', 'twoFactor.enabledAt': { $exists: false }, 'securityKeys.0': { $exists: false } }),
@@ -35,6 +38,7 @@ export function adminRoutes(deps: { env: Env; jobs: JobService; jobStore: MongoJ
     ]);
     const mem = process.memoryUsage();
     ok(res, {
+      teams: { total: teamTotal, paid: teamPaid },
       users: { total, active7d, admins, adminsWithoutTwoFactor, twoFactorRequired: adminTwoFactorRequired(deps.env), byPlan: Object.fromEntries(byPlanRows.map((p) => [p._id, p.n])) },
       jobs: { total: Object.values(states).reduce((a, b) => a + b, 0), byState: states, completed: states.completed ?? 0, failed: states.failed ?? 0 },
       queue: await deps.jobs.queueStats().catch(() => ({ waiting: 0, active: 0, unavailable: true })),
@@ -92,6 +96,18 @@ export function adminRoutes(deps: { env: Env; jobs: JobService; jobStore: MongoJ
       rows: rows.map((j) => ({ id: j.id, owner: j.owner, tool: j.tool, state: j.state, plan: j.plan, createdAt: new Date(j.createdAt).toISOString(), error: j.error?.code, bytes: j.result?.bytes })),
     });
   }));
+
+  // Teams: look-up for support, plus the two actions support needs. Same gate as everything here; both actions are audited.
+  r.get('/teams', wrap(async (req, res) => {
+    const { page: p, pageSize } = page.parse(req.query);
+    ok(res, await deps.teams.adminList({ page: p, pageSize, q: z.string().trim().max(100).optional().parse(req.query.q) || undefined }));
+  }));
+  r.get('/teams/:id', wrap(async (req, res) => ok(res, await deps.teams.adminDetail(String(req.params.id)))));
+  r.post('/teams/:id/transfer', wrap(async (req, res) => {
+    await deps.teams.adminTransfer(req, req.user, String(req.params.id), adminTransferSchema.parse(req.body).userId);
+    ok(res, await deps.teams.adminDetail(String(req.params.id)));
+  }));
+  r.delete('/teams/:id', wrap(async (req, res) => { await deps.teams.adminDelete(req, req.user, String(req.params.id)); ok(res, { deleted: true }); }));
 
   r.get('/usage', wrap(async (req, res) => {
     const days = z.coerce.number().int().min(1).max(90).default(14).parse(req.query.days);

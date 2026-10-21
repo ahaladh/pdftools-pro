@@ -60,6 +60,23 @@ export interface UserView {
 export type TeamRole = 'owner' | 'admin' | 'member';
 export interface TeamMemberView { userId: string; email: string; name: string; role: TeamRole; joinedAt: string; you: boolean }
 export interface TeamInviteView { id: string; email: string; role: 'admin' | 'member'; invitedAt: string; expiresAt: string }
+/** A team as an administrator sees it in the admin console. Never carries Stripe ids or invitees' addresses. */
+export interface AdminTeamRow {
+  id: string; name: string; plan: PlanId;
+  owner: { id: string; email: string };
+  members: number; seats: number; /** Members plus pending invitations. */ seatsUsed: number;
+  /** Today's shared allowance (paid plans only). */
+  pool?: { opsToday: number; limit: number };
+  subscription?: { status: string; plan?: string; cancelAtPeriodEnd?: boolean };
+  createdAt: string;
+}
+export interface AdminTeamDetail extends AdminTeamRow {
+  pendingInvites: number;
+  currentPeriodEnd?: string;
+  memberList: { userId: string; email: string; name: string; role: TeamRole; joinedAt: string; emailVerified: boolean; /** Operations used today out of the pool (paid plans only). */ opsToday?: number }[];
+}
+export const adminTransferSchema = z.object({ userId: z.string().regex(/^[a-f0-9]{24}$/, 'Choose a member of the team') });
+
 export interface TeamView {
   id: string; name: string; myRole: TeamRole;
   /** The plan the team pays for (free when there is no active subscription). */
