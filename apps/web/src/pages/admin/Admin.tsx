@@ -8,6 +8,8 @@ import { Select, TextInput } from '@/features/tools/fields';
 import { api } from '@/lib/api';
 import { formatBytes, cn } from '@/lib/utils';
 import { useSeo } from '@/hooks/useSeo';
+import { useAuth } from '@/stores/auth';
+import { Link } from 'react-router-dom';
 
 const TABS = ['Overview', 'Users', 'Jobs', 'Usage', 'Settings', 'Audit log'] as const;
 type Tab = (typeof TABS)[number];
@@ -15,6 +17,20 @@ type Tab = (typeof TABS)[number];
 export default function Admin() {
   useSeo({ title: 'Admin', description: 'Administration', path: '/admin', noindex: true });
   const [tab, setTab] = useState<Tab>('Overview');
+  const user = useAuth((s) => s.user);
+  const cfg = useQuery({ queryKey: ['config'], queryFn: api.config, staleTime: 5 * 60_000 });
+  // Say it plainly instead of showing a wall of 403s: the server enforces this too, this is only the explanation.
+  if (user && cfg.data?.features.adminTwoFactor && !user.twoFactorEnabled) {
+    return (
+      <div className="mx-auto max-w-2xl px-4 py-16 sm:px-6">
+        <h1 className="text-3xl font-bold tracking-tight">Administration</h1>
+        <div role="alert" className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
+          <p className="font-semibold">Turn on two-step sign-in to use the admin area.</p>
+          <p className="mt-1">Administrator accounts must have an authenticator app or a security key. Set one up on <Link to="/account" className="underline">your account page</Link>, then come back here.</p>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
       <h1 className="text-3xl font-bold tracking-tight">Administration</h1>
@@ -53,6 +69,9 @@ function Overview() {
         <Stat label="Queue" value={`${d.queue.waiting} waiting`} sub={`${d.queue.active} running`} />
         <Stat label="Storage in use" value={formatBytes(d.storage.bytes)} />
       </div>
+      {d.users.twoFactorRequired && d.users.adminsWithoutTwoFactor > 0 && (
+        <p role="status" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{d.users.adminsWithoutTwoFactor} administrator{d.users.adminsWithoutTwoFactor === 1 ? ' has' : 's have'} not turned on two-step sign-in yet and cannot use the admin area until they do.</p>
+      )}
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="p-5"><h2 className="font-semibold">Users by plan</h2>
           <ul className="mt-2 text-sm">{PLAN_IDS.filter((p) => p !== 'guest').map((p) => <li key={p} className="flex justify-between border-b border-slate-100 py-1 capitalize"><span>{p}</span><span>{d.users.byPlan[p] ?? 0}</span></li>)}</ul></Card>
@@ -91,6 +110,7 @@ function Users() {
   const [search, setSearch] = useState('');
   const [applied, setApplied] = useState('');
   const q = useQuery({ queryKey: ['admin-users', page, applied], queryFn: () => api.admin.users({ page, q: applied || undefined }) });
+  const me = useAuth((s) => s.user);
   const reset2fa = useMutation({ mutationFn: (id: string) => api.admin.resetTwoFactor(id), onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-users'] }) });
   const upd = useMutation({ mutationFn: (v: { id: string; patch: Parameters<typeof api.admin.updateUser>[1] }) => api.admin.updateUser(v.id, v.patch), onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-users'] }) });
   return (
@@ -99,7 +119,7 @@ function Users() {
         <TextInput className="max-w-xs" aria-label="Search users by email" placeholder="Search email…" value={search} onChange={(e) => setSearch(e.target.value)} />
         <Button type="submit" variant="secondary">Search</Button>
       </form>
-      <ErrorBox e={q.error ?? upd.error} />
+      <ErrorBox e={q.error ?? upd.error ?? reset2fa.error} />
       <div className="mt-3 overflow-x-auto"><table className="w-full text-left text-sm">
         <thead className="text-xs uppercase text-slate-500"><tr><th className="py-2">Email</th><th>Role</th><th>Plan</th><th>Status</th><th>Last login</th><th>Joined</th><th>2-step</th></tr></thead>
         <tbody>{q.data?.rows.map((u) => (
@@ -111,7 +131,7 @@ function Users() {
             <td className="px-2">{u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString() : '—'}</td>
             <td>{new Date(u.createdAt).toLocaleDateString()}</td>
             <td className="pl-2">{u.twoFactorEnabled
-              ? <Button size="sm" variant="secondary" aria-label={`Reset two-step verification for ${u.email}`} disabled={reset2fa.isPending} onClick={() => { if (window.confirm(`Turn off two-step verification for ${u.email} and sign them out everywhere? Do this only after confirming their identity.`)) reset2fa.mutate(u.id); }}>Reset</Button>
+              ? <Button size="sm" variant="secondary" aria-label={`Reset two-step verification for ${u.email}`} disabled={reset2fa.isPending || u.id === me?.id} title={u.id === me?.id ? 'Ask another administrator to reset yours' : undefined} onClick={() => { if (window.confirm(`Turn off two-step verification for ${u.email} and sign them out everywhere? Do this only after confirming their identity.`)) reset2fa.mutate(u.id); }}>Reset</Button>
               : <span className="text-xs text-slate-500">off</span>}</td>
           </tr>))}</tbody>
       </table></div>

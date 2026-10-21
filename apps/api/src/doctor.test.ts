@@ -49,6 +49,13 @@ describe('doctor: production configuration review', () => {
     expect(by(checkConfig(loadEnv({ ...accounts, NODE_ENV: 'development', PUBLIC_URL: 'http://pdf.example.com' })), name).level).toBe('warn'); // advisory outside production
     expect(by(checkConfig(loadEnv({ ...accounts, NODE_ENV: 'development', PUBLIC_URL: 'not a url' })), name).level).toBe('fail');
   });
+  it('reports the administrator two-step policy: required passes, an explicit off in production warns', () => {
+    const accounts = { ...GOOD, MONGODB_URI: 'mongodb://x', JWT_ACCESS_SECRET: JWT };
+    expect(by(checkConfig(loadEnv(accounts)), 'admin two-step sign-in')).toMatchObject({ level: 'pass', detail: expect.stringContaining('required') });
+    const off = by(checkConfig(loadEnv({ ...accounts, REQUIRE_ADMIN_2FA: 'false' })), 'admin two-step sign-in');
+    expect(off.level).toBe('warn'); expect(off.detail).toMatch(/just a password/);
+    expect(by(checkConfig(loadEnv({ ...accounts, NODE_ENV: 'development' })), 'admin two-step sign-in').level).toBe('pass'); // off by default outside production
+  });
   it('requires Stripe key and webhook secret together; warns about leftovers', () => {
     expect(by(checkConfig(loadEnv({ ...GOOD, STRIPE_SECRET_KEY: 'sk_test_x' })), 'billing').level).toBe('fail');
     expect(by(checkConfig(loadEnv({ ...GOOD, STRIPE_SECRET_KEY: 'sk_test_x', STRIPE_WEBHOOK_SECRET: 'whsec_x' })), 'billing').level).toBe('pass');

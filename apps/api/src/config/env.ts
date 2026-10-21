@@ -81,6 +81,12 @@ const schema = z.object({
   WEBAUTHN_RP_ID: z.string().optional(),
   WEBAUTHN_ORIGINS: z.string().optional(),
   SMTP_URL: z.string().optional(),
+  /**
+   * Administrators must have a second sign-in step (authenticator app or security key) before the admin area opens.
+   * Unset: on in production, off elsewhere (so development and tests work without enrolling). Set to false only briefly,
+   * to recover when the only administrator has lost every factor.
+   */
+  REQUIRE_ADMIN_2FA: z.enum(['true', 'false', '1', '0', 'yes', 'no', '']).optional().transform((v) => (v === undefined || v === '' ? undefined : v === 'true' || v === '1' || v === 'yes')),
   /** When on, an unverified email cannot start a paid checkout. Recommended in production. */
   REQUIRE_VERIFIED_EMAIL: bool(false),
   /** Seats per team plan (members plus pending invitations). A team without a subscription has one: its owner. */

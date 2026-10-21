@@ -15,7 +15,7 @@ import { setSessionHint, setToken } from '@/lib/session';
 import { useSeo } from '@/hooks/useSeo';
 import { useAuth } from '@/stores/auth';
 import { getTool } from '@pdftools/shared';
-import { DevicesCard, EmailStatus, SecurityKeysCard, TwoFactorCard } from '@/pages/account/Security';
+import { AdminTwoFactorNotice, DevicesCard, EmailStatus, SecurityKeysCard, TwoFactorCard } from '@/pages/account/Security';
 import { TeamCard } from '@/pages/account/Team';
 
 const when = (iso: string) => new Date(iso).toLocaleString();
@@ -57,6 +57,7 @@ export default function Account() {
         </div>
       </header>
       <EmailStatus />
+      <AdminTwoFactorNotice />
       {params.get('checkout') === 'success' && <p role="status" className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">Thanks! Your subscription is being activated; this can take a few seconds. Refresh to see your new plan.</p>}
 
       <section aria-labelledby="plan" className="grid gap-6 md:grid-cols-2">

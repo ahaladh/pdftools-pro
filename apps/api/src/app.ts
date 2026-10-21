@@ -29,6 +29,7 @@ import { defaultSettings } from './modules/settings/defaults.js';
 import { identity } from './modules/auth/middleware.js';
 import { authRoutes, setRefreshCookie } from './modules/auth/routes.js';
 import { AuthService } from './modules/auth/service.js';
+import { adminTwoFactorRequired } from './modules/auth/policy.js';
 import { SecurityKeyService } from './modules/auth/webauthn.js';
 import { AuditService } from './modules/auth/audit.js';
 import { accountRoutes } from './modules/account/routes.js';
@@ -154,7 +155,7 @@ export async function createApp(deps: AppDeps = {}) {
     const cfg: PublicConfig = {
       brand: env.BRAND_NAME, maintenance: s.maintenance,
       limits: { maxFileMB: g.maxFileMB, maxFiles: g.maxFiles, maxPages: g.maxPages, retentionMinutes: g.retentionMinutes },
-      features: { accounts, billing: billing.enabled },
+      features: { accounts, billing: billing.enabled, adminTwoFactor: adminTwoFactorRequired(env) },
     };
     ok(res, cfg);
   });
@@ -173,7 +174,7 @@ export async function createApp(deps: AppDeps = {}) {
     app.use('/api/me', accountRoutes({ auth, securityKeys, jobs, usage, settings, refreshCookie: (res, s) => setRefreshCookie(env, res, s) }));
     app.use('/api/billing', billingRoutes(billing, { requireVerifiedEmail: env.REQUIRE_VERIFIED_EMAIL, teamOf: (u) => teams.context(u) }));
     app.use('/api/teams', teamRoutes(teams));
-    app.use('/api/admin', adminRoutes({ jobs, jobStore: jobStore as MongoJobStore, settings, audit, auth }));
+    app.use('/api/admin', adminRoutes({ env, jobs, jobStore: jobStore as MongoJobStore, settings, audit, auth }));
   } else {
     for (const p of ['/api/auth', '/api/me', '/api/billing', '/api/teams', '/api/admin']) app.use(p, disabled);
   }

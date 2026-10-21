@@ -10,6 +10,7 @@ import type { Mailer } from '../mail/mailer.js';
 import type { AuditService } from './audit.js';
 import { burnPasswordCheck, hashPassword, verifyPassword } from './password.js';
 import { planInfo } from '../teams/plan.js';
+import { adminTwoFactorRequired } from './policy.js';
 import { newOpaqueToken, sha256, signAccessToken, signMfaChallenge, verifyMfaChallenge } from './tokens.js';
 import { hashRecovery, looksLikeRecovery, newRecoveryCodes, newTotpSecret, openSecret, otpauthUri, sealSecret, base32Encode, verifyTotp } from './totp.js';
 
@@ -83,6 +84,16 @@ export class AuthService {
 
   // ------------------------------------------------------------------ two-factor
   private key() { return this.env.TWO_FACTOR_KEY ?? this.env.JWT_ACCESS_SECRET; }
+
+  /**
+   * While the policy is on, an administrator may not drop to no second factor. `left` is what would remain afterwards.
+   * Without this, a hijacked admin session could simply switch the protection off.
+   */
+  assertMayDropFactor(user: UserDoc, left: { totp: boolean; keys: number }) {
+    if (user.role === 'admin' && adminTwoFactorRequired(this.env) && !left.totp && left.keys === 0) {
+      throw new HttpError(409, 'admin_requires_two_factor', 'Administrator accounts must keep two-step sign-in on. Add another security key or an authenticator app first, then remove this one.');
+    }
+  }
 
   /** Refuse while the account is locked (too many wrong passwords or second factors). */
   assertNotLocked(user: UserDoc) {
@@ -185,6 +196,7 @@ export class AuthService {
   async disableTwoFactor(req: Request, user: UserDoc, password: string, code: string): Promise<Session> {
     await this.requirePassword(user, password);
     if (!hasTotp(user)) throw new HttpError(409, 'two_factor_off', 'No authenticator app is set up.');
+    this.assertMayDropFactor(user, { totp: false, keys: user.securityKeys?.length ?? 0 });
     await this.checkSecondFactor(user, code, req);
     const fresh = await UserModel.findById(user._id);
     fresh.twoFactor = hasKeys(fresh) ? { recoveryHashes: fresh.twoFactor.recoveryHashes ?? [], failed: 0 } : undefined;

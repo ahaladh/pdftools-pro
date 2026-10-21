@@ -30,6 +30,19 @@ export function EmailStatus() {
   );
 }
 
+/** Shown to administrators who have no second sign-in step while the policy requires one. */
+export function AdminTwoFactorNotice() {
+  const user = useAuth((s) => s.user);
+  const cfg = useQuery({ queryKey: ['config'], queryFn: api.config, staleTime: 5 * 60_000 });
+  if (!user || user.role !== 'admin' || user.twoFactorEnabled || !cfg.data?.features.adminTwoFactor) return null;
+  return (
+    <div role="alert" className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+      <ShieldOff className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
+      <p><b>Two-step sign-in is required for administrators.</b> The admin area stays closed until you add an authenticator app or a security key below.</p>
+    </div>
+  );
+}
+
 function RecoveryCodes({ codes, onDone }: { codes: string[]; onDone: () => void }) {
   const [copied, setCopied] = useState(false);
   const text = `${codes.join('\n')}\n`;

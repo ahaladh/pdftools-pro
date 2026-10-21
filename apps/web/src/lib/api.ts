@@ -133,7 +133,7 @@ export interface AdminUser extends UserView { status: 'active' | 'disabled'; las
 export interface AdminJob { id: string; owner: string; tool: string; state: string; plan: string; createdAt: string; error?: string; bytes?: number }
 export interface AdminAudit { _id: string; at: string; actor: string; action: string; target?: string; ip?: string }
 export interface AdminDashboard {
-  users: { total: number; active7d: number; admins: number; byPlan: Record<string, number> };
+  users: { total: number; active7d: number; admins: number; /** Administrators with no second sign-in step. */ adminsWithoutTwoFactor: number; twoFactorRequired: boolean; byPlan: Record<string, number> };
   jobs: { total: number; byState: Record<string, number>; completed: number; failed: number };
   queue: { waiting: number; active: number };
   running: { id: string; tool: string; plan: string; runningMs: number }[];

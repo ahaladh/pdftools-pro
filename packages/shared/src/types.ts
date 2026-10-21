@@ -30,5 +30,5 @@ export interface PublicConfig {
   brand: string;
   limits: { maxFileMB: number; maxFiles: number; maxPages: number; retentionMinutes: number };
   maintenance: boolean;
-  features: { accounts: boolean; billing: boolean };
+  features: { accounts: boolean; billing: boolean; /** Administrators must use a second sign-in step. */ adminTwoFactor: boolean };
 }

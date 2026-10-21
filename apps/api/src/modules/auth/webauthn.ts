@@ -156,6 +156,7 @@ export class SecurityKeyService {
   async remove(req: Request, user: UserDoc, id: string, password: string, code: string): Promise<{ keys: SecurityKeyView[]; session: Session }> {
     await this.auth.requirePassword(user, password);
     if (!(user.securityKeys ?? []).some((k: { credentialId: string }) => k.credentialId === id)) throw new HttpError(404, 'not_found', 'That security key was not found.');
+    this.auth.assertMayDropFactor(user, { totp: hasTotp(user), keys: (user.securityKeys?.length ?? 1) - 1 });
     await this.auth.checkSecondFactor(user, code, req);
     const r = await UserModel.updateOne({ _id: user._id }, { $pull: { securityKeys: { credentialId: id } } });
     if (r.modifiedCount !== 1) throw new HttpError(404, 'not_found', 'That security key was not found.');

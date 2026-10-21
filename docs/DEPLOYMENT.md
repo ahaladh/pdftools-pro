@@ -36,6 +36,7 @@ Always finish a deployment with `doctor` and `smoke` (below): they check the rea
   openssl rand -hex 16   # METRICS_TOKEN
   openssl rand -hex 16   # MONGO_PASSWORD
   ```
+* **First administrator:** sign in with `ADMIN_EMAIL` / `ADMIN_PASSWORD`, open *Account* and add an authenticator app or a security key (production requires one before the admin area opens), then remove `ADMIN_PASSWORD` from the environment.
 * Decide the public origin (`https://pdf.example.com`). It is baked into the web build (canonical URLs, sitemap, robots, prerendered pages), so changing the domain means rebuilding the web image.
 
 ## A. Docker Compose + Caddy

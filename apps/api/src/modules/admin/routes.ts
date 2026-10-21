@@ -6,7 +6,9 @@ import { AuditModel, SessionModel, UsageModel, UserModel } from '../../db/models
 import { ok, wrap } from '../../middleware/common.js';
 import { HttpError } from '../../utils/errors.js';
 import type { AuditService } from '../auth/audit.js';
-import { requireAdmin } from '../auth/middleware.js';
+import { requireAdmin, requireAdminTwoFactor } from '../auth/middleware.js';
+import type { Env } from '../../config/env.js';
+import { adminTwoFactorRequired } from '../auth/policy.js';
 import type { AuthService } from '../auth/service.js';
 import { secondFactorOn, userView } from '../auth/service.js';
 import type { JobService } from '../jobs/service.js';
@@ -16,20 +18,22 @@ import type { SettingsService } from '../settings/service.js';
 const page = z.object({ page: z.coerce.number().int().min(1).default(1), pageSize: z.coerce.number().int().min(1).max(100).default(25) });
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-export function adminRoutes(deps: { jobs: JobService; jobStore: MongoJobStore; settings: SettingsService; audit: AuditService; auth: AuthService }) {
+export function adminRoutes(deps: { env: Env; jobs: JobService; jobStore: MongoJobStore; settings: SettingsService; audit: AuditService; auth: AuthService }) {
   const r = Router();
   r.use(requireAdmin); // every admin endpoint: authenticated AND role=admin, checked server-side
+  r.use(requireAdminTwoFactor(deps.env)); // ...and, when the policy is on, protected by a second sign-in step
 
   r.get('/dashboard', wrap(async (_req, res) => {
     const since = new Date(Date.now() - 7 * 86400_000);
-    const [total, active7d, admins, byPlanRows, states] = await Promise.all([
+    const [total, active7d, admins, adminsWithoutTwoFactor, byPlanRows, states] = await Promise.all([
       UserModel.countDocuments(), UserModel.countDocuments({ lastLoginAt: { $gte: since } }), UserModel.countDocuments({ role: 'admin' }),
+      UserModel.countDocuments({ role: 'admin', 'twoFactor.enabledAt': { $exists: false }, 'securityKeys.0': { $exists: false } }),
       UserModel.aggregate([{ $group: { _id: '$plan', n: { $sum: 1 } } }]) as Promise<{ _id: string; n: number }[]>,
       deps.jobStore.countsByState(),
     ]);
     const mem = process.memoryUsage();
     ok(res, {
-      users: { total, active7d, admins, byPlan: Object.fromEntries(byPlanRows.map((p) => [p._id, p.n])) },
+      users: { total, active7d, admins, adminsWithoutTwoFactor, twoFactorRequired: adminTwoFactorRequired(deps.env), byPlan: Object.fromEntries(byPlanRows.map((p) => [p._id, p.n])) },
       jobs: { total: Object.values(states).reduce((a, b) => a + b, 0), byState: states, completed: states.completed ?? 0, failed: states.failed ?? 0 },
       queue: await deps.jobs.queueStats().catch(() => ({ waiting: 0, active: 0, unavailable: true })),
       running: deps.jobs.runningSnapshot(), // CPU-intensive work currently executing
@@ -52,6 +56,7 @@ export function adminRoutes(deps: { jobs: JobService; jobStore: MongoJobStore; s
     if (!/^[a-f0-9]{24}$/.test(id)) throw new HttpError(404, 'not_found', 'User not found');
     const user = await UserModel.findById(id);
     if (!user) throw new HttpError(404, 'not_found', 'User not found');
+    if (String(user._id) === String(req.user._id)) throw new HttpError(409, 'cannot_reset_own', 'You cannot reset your own two-step sign-in from the admin area. Ask another administrator.');
     if (!secondFactorOn(user)) throw new HttpError(409, 'two_factor_off', 'This user has not turned on two-factor sign-in.');
     await deps.auth.adminResetTwoFactor(req, user);
     ok(res, userView(user));

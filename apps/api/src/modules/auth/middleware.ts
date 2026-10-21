@@ -5,7 +5,8 @@ import { HttpError } from '../../utils/errors.js';
 import { newId } from '../../utils/security.js';
 import { verifyAccessToken } from './tokens.js';
 import { planInfo } from '../teams/plan.js';
-import type { UserDoc } from './service.js';
+import { secondFactorOn, type UserDoc } from './service.js';
+import { adminTwoFactorRequired } from './policy.js';
 
 declare module 'express-serve-static-core' {
   interface Request {
@@ -57,6 +58,17 @@ export const requireAdmin: RequestHandler = (req, _res, next) => {
   if (!req.user) return next(new HttpError(401, 'auth_required', 'Please sign in.'));
   // Role is read from the database on every request, never trusted from the token.
   if (req.user.role !== 'admin') return next(new HttpError(403, 'forbidden', 'Administrator access required.'));
+  next();
+};
+
+/**
+ * Administrators must have a second sign-in step. Checked from the database on every request (never from the token), so
+ * it applies the moment an account is promoted or its factors are removed. Account endpoints stay open so they can enrol.
+ */
+export const requireAdminTwoFactor = (env: Env): RequestHandler => (req, _res, next) => {
+  if (adminTwoFactorRequired(env) && !secondFactorOn(req.user)) {
+    return next(new HttpError(403, 'two_factor_required', 'Administrators must turn on two-step sign-in (an authenticator app or a security key) before using the admin area. Open your account page to set it up.'));
+  }
   next();
 };
 
