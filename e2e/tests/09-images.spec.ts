@@ -29,6 +29,8 @@ const SITE = 'https://localhost:4444';
 const secrets = { DOWNLOAD_SECRET: randomBytes(32).toString('hex') };
 
 test.beforeAll(async () => {
+  // Building both images takes ~50s on a fast machine and about twice that on a CI runner: the 90s default was too tight.
+  test.setTimeout(300_000);
   if (!process.env.E2E_IMAGES_REUSE) {
     await Promise.all([
       sim('Dockerfile.api', 'runtime'),
