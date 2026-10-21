@@ -72,7 +72,7 @@ export async function createApp(deps: AppDeps = {}) {
 
   const usage = accounts ? new MongoUsageStore() : new MemoryUsageStore();
   const jobStore: JobStore = deps.store ?? (accounts ? new MongoJobStore() : new MemoryJobStore());
-  const settings = new SettingsService(accounts ? new MongoSettingsStore() : new MemorySettingsStore(), defaultSettings(env));
+  const settings = new SettingsService(accounts ? new MongoSettingsStore() : new MemorySettingsStore(), defaultSettings(env), 3000, log);
   // 'inline' processes jobs in this process; 'bullmq' only enqueues and separate workers (worker.ts) process.
   const runner = env.QUEUE_DRIVER === 'inline' ? new JobRunner(env, jobStore, usage, log, metrics) : null;
   const queue: JobQueue = runner ? new InlineQueue(runner, () => env.WORKER_CONCURRENCY) : new BullQueue(env.REDIS_URL!);
@@ -86,13 +86,14 @@ export async function createApp(deps: AppDeps = {}) {
   const billing = new BillingService(env, settings, log, accounts ? stripe : null);
 
   const mongoJobs = jobStore instanceof MongoJobStore ? jobStore : null;
-  const teams = new TeamService(env, mailer, audit, log, { cancelSubscription: (t) => billing.cancelForDeletion(t) });
+  const teams = new TeamService(env, mailer, audit, log, { cancelSubscription: (t) => billing.cancelForDeletion(t) }, usage, settings);
   const auth = new AuthService(env, mailer, audit, log, {
     cancelSubscription: (u) => billing.cancelForDeletion(u),
     leaveTeam: (u) => teams.onAccountDeletion(u),
     deleteUserData: async (owner) => {
       if (mongoJobs) { for (const j of await mongoJobs.listByOwner(owner)) await jobs.expire(j, 'user'); await mongoJobs.deleteByOwner(owner); }
       await usage.deleteKey(owner);
+      await usage.deleteMemberUsage(owner.replace(/^u:/, ''));
     },
   });
   const securityKeys = new SecurityKeyService(env, auth, audit);

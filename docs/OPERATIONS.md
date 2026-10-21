@@ -121,6 +121,7 @@ If **everyone** with 2FA is suddenly unable to sign in with a valid code, the en
 ### Team questions
 
 * *"My teammate cannot join."* The invitation only works for the signed-in account whose **confirmed** email matches the address it was sent to (look for `team.invited` and a failed accept in the log); a person can be in only one team at a time; and there must be a free seat.
+* *"Our team says it hit the limit but each person only used a few."* On a paid team the daily operations are shared (`dailyOps x members`); the Team card shows the bar and, to owners and admins, who used what. It resets at midnight UTC. Adding people raises it at once; a member whose *own* plan is better uses their own allowance and neither draws from nor feeds the pool. If the team's subscription lapsed the pool is gone and everyone is back on their own limit.
 * *"The owner left the company / is unreachable."* There is no admin override for team ownership yet. A member who is an admin cannot take it, so the owner must transfer it. If that is impossible, handle it as an account-recovery case (verify identity first), then change the owner directly in the `teams` and `teammembers` collections.
 * *Seats do not match the plan after a price change:* seats come from `TEAM_SEATS_*`, not from Stripe. Lowering them never evicts members; it only blocks new invitations.
 
@@ -200,4 +201,5 @@ Anything the tool reports as *cannot be opened* is left untouched. Add the key t
 
 * Daily: alerts quiet; last backup exists and is off-host.
 * Weekly: `npm audit --omit=dev` in CI is green; OS and engine updates applied (Ghostscript, Poppler, LibreOffice, ImageMagick are the highest-risk components: they parse untrusted files); admin Audit log skimmed.
+* If an admin settings change "does not stick" (maintenance mode, plan limits, disabled tools reverting), search the API log for `stored settings are invalid`: the stored document failed validation and the **defaults are in effect**. Versions before this release could do this silently whenever no Stripe price ids were set in the environment; saving the settings again from the admin page repairs it.
 * Monthly: restore drill; certificate expiry check; review plan limits against real usage.

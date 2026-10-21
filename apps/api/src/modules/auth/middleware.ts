@@ -4,7 +4,7 @@ import { UserModel } from '../../db/models.js';
 import { HttpError } from '../../utils/errors.js';
 import { newId } from '../../utils/security.js';
 import { verifyAccessToken } from './tokens.js';
-import { planInfo } from '../teams/plan.js';
+import { memberKey, planInfo } from '../teams/plan.js';
 import { secondFactorOn, type UserDoc } from './service.js';
 import { adminTwoFactorRequired } from './policy.js';
 
@@ -14,6 +14,8 @@ declare module 'express-serve-static-core' {
     user?: UserDoc;
     /** The plan that applies: their own or their team's, whichever is better (undefined for guests). */
     effectivePlan?: import('@pdftools/shared').PlanId;
+    /** Set when this person's operations are counted against their team's shared daily pool. */
+    pool?: import('../teams/plan.js').PoolContext;
     /** Counter keys for quota accounting: user id, or guest cookie + client IP. */
     usageKeys: string[];
   }
@@ -35,9 +37,13 @@ export function identity(env: Env, accountsEnabled: boolean): RequestHandler {
         const user = id ? await UserModel.findById(id).catch(() => null) : null;
         if (!user || user.status !== 'active') throw new HttpError(401, 'invalid_token', 'Session expired. Please sign in again.');
         req.user = user;
-        req.effectivePlan = (await planInfo(user)).effectivePlan;
+        const info = await planInfo(user);
+        req.effectivePlan = info.effectivePlan;
         req.owner = `u:${user._id}`;
-        req.usageKeys = [req.owner];
+        // Pooled: count against the team's shared counter (plus a per-member breakdown), not the person's own, so leaving the
+        // team later does not leave them with a used-up personal allowance.
+        if (info.pool) { req.pool = info.pool; req.usageKeys = [info.pool.key, memberKey(info.pool.teamId, String(user._id))]; }
+        else req.usageKeys = [req.owner];
         return next();
       }
       let id: unknown = req.cookies?.[GUEST_COOKIE];

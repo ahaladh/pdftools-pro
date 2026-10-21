@@ -69,6 +69,11 @@ export interface TeamView {
   members: TeamMemberView[];
   /** Pending invitations: owners and admins only. */
   invites: TeamInviteView[];
+  /**
+   * Today's shared allowance on a paid team plan: `dailyOps x members`. Members whose own plan is better use their own
+   * allowance instead and do not draw from it. Absent for a team without a paid plan.
+   */
+  pool?: { opsToday: number; limit: number; perMember: number; /** Owners and admins only. */ byMember?: { userId: string; ops: number }[] };
   /** Billing state: owner only. */
   subscription?: { status: string; plan: PlanId; currentPeriodEnd?: string; cancelAtPeriodEnd?: boolean };
   createdAt: string;
@@ -87,6 +92,8 @@ export interface UsageView {
   today: { ops: number; limit: number };
   limits: { maxFileMB: number; maxPages: number; maxFiles: number; maxConcurrentJobs: number; retentionMinutes: number };
   last30Days: { day: string; ops: number }[];
+  /** Present when this person's operations are counted against their team's shared pool (then `today` and `last30Days` are the pool's). */
+  pool?: { team: string; members: number; yourOpsToday: number };
 }
 
 export const registerSchema = z.object({

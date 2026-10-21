@@ -24,6 +24,17 @@ export class Entitlements {
     if (this.storageMB && this.maxStorageMB > 0 && (await this.storageMB()) >= this.maxStorageMB) {
       throw new HttpError(503, 'storage_full', 'The service is temporarily at capacity. Please try again in a few minutes.');
     }
+    if (req.pool) {
+      // Shared pool: one counter for the team, sized by how many people are in it. Concurrency stays per person.
+      // Jobs in flight anywhere in the team count too: they are not in the shared counter until they finish.
+      const [mine, inFlight, used] = await Promise.all([this.jobs.activeCount(req.owner), Promise.all(req.pool.memberIds.map((id) => this.jobs.activeCount(`u:${id}`))).then((a) => a.reduce((x, y) => x + y, 0)), this.usage.ops(req.pool.key)]);
+      if (mine >= plan.maxConcurrentJobs) throw new HttpError(429, 'too_many_jobs', 'You already have jobs in progress. Please wait for them to finish.');
+      const limit = plan.dailyOps * req.pool.members;
+      if (used + inFlight >= limit) {
+        throw new HttpError(429, 'quota_exceeded', `Your team “${req.pool.teamName}” has used today's shared allowance of ${limit} operations (${plan.dailyOps} for each of its ${req.pool.members} member${req.pool.members === 1 ? '' : 's'}). It resets tomorrow; a team owner can add people to raise it.`);
+      }
+      return plan;
+    }
     const [active, ...used] = await Promise.all([this.jobs.activeCount(req.owner), ...req.usageKeys.map((k) => this.usage.ops(k))]);
     if (active >= plan.maxConcurrentJobs) throw new HttpError(429, 'too_many_jobs', 'You already have jobs in progress. Please wait for them to finish.');
     if (Math.max(0, ...used) + active >= plan.dailyOps) {

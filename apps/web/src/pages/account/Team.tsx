@@ -41,6 +41,7 @@ function Members({ team, actions }: { team: TeamView; actions: ReturnType<typeof
   const canManage = isOwner || team.myRole === 'admin';
   const role = useMutation({ mutationFn: (v: { id: string; role: 'admin' | 'member' }) => api.teams.setRole(v.id, v.role), ...opts });
   const remove = useMutation({ mutationFn: (id: string) => api.teams.removeMember(id), ...opts });
+  const share = new Map((team.pool?.byMember ?? []).map((x) => [x.userId, x.ops]));
   const canRemove = (m: TeamMemberView) => !m.you && m.role !== 'owner' && (isOwner || (canManage && m.role === 'member'));
   return (
     <ul className="mt-3 divide-y divide-slate-100" aria-label="Team members">
@@ -50,6 +51,7 @@ function Members({ team, actions }: { team: TeamView; actions: ReturnType<typeof
             <p className="truncate font-medium">{m.name || m.email}{m.you && <span className="ml-2 rounded-md bg-slate-100 px-1.5 py-0.5 text-xs font-medium text-slate-700">You</span>}</p>
             {m.name && <p className="truncate text-xs text-slate-600">{m.email}</p>}
           </div>
+          {share.has(m.userId) && <span className="text-xs text-slate-600" aria-label={`Operations used today by ${m.email}`}>{share.get(m.userId)} today</span>}
           {isOwner && !m.you && m.role !== 'owner'
             ? <Select aria-label={`Role of ${m.email}`} className="!w-auto !py-1.5" value={m.role} onChange={(e) => role.mutate({ id: m.userId, role: e.target.value as 'admin' | 'member' })}><option value="member">Member</option><option value="admin">Admin</option></Select>
             : <span className="inline-flex items-center gap-1 rounded-md bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-800">{m.role === 'owner' && <Crown className="h-3 w-3" aria-hidden="true" />}{ROLE_LABEL[m.role]}</span>}
@@ -109,6 +111,13 @@ export function TeamCard() {
               <span className="text-sm text-slate-600" aria-label="Seats">{team.seatsUsed} of {team.seats} seat{team.seats === 1 ? '' : 's'} used</span>
               <span className="ml-auto text-sm text-slate-600">You are {team.myRole === 'admin' ? 'an admin' : `the ${team.myRole}`}</span>
             </div>
+            {team.pool && (
+              <div className="rounded-xl bg-slate-50 p-3" aria-label="Shared allowance">
+                <div className="flex justify-between text-sm"><span className="font-medium">Shared allowance today</span><span>{team.pool.opsToday} / {team.pool.limit}</span></div>
+                <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-slate-200" role="progressbar" aria-label="Team operations used today" aria-valuenow={team.pool.opsToday} aria-valuemin={0} aria-valuemax={team.pool.limit}><div className={`h-full rounded-full ${team.pool.opsToday >= team.pool.limit * 0.9 ? 'bg-red-500' : 'bg-brand-600'}`} style={{ width: `${Math.min(100, Math.round((team.pool.opsToday / Math.max(1, team.pool.limit)) * 100))}%` }} /></div>
+                <p className="mt-1.5 text-xs text-slate-600">{team.pool.perMember} for each of {team.members.length} member{team.members.length === 1 ? '' : 's'}, shared: people who use less leave room for people who use more. Anyone whose own plan is better uses their own allowance instead. Resets daily.</p>
+              </div>
+            )}
             {team.plan === 'free' && <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">This team is on the free plan, so there is room for just you. {isOwner ? 'Subscribe the team to share a paid plan with colleagues.' : 'Ask the owner to subscribe the team.'}</p>}
 
             <Members team={team} actions={actions} />

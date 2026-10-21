@@ -8,6 +8,9 @@ import type { AuditService } from '../auth/audit.js';
 import type { UserDoc } from '../auth/service.js';
 import type { Mailer } from '../mail/mailer.js';
 import { newOpaqueToken, sha256 } from '../auth/tokens.js';
+import type { SettingsService } from '../settings/service.js';
+import type { UsageStore } from '../usage/store.js';
+import { memberKey, poolKey } from './plan.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Doc = any;
@@ -16,7 +19,7 @@ const isId = (s: string) => /^[a-f0-9]{24}$/.test(s);
 
 export class TeamService {
   constructor(private env: Env, private mailer: Mailer, private audit: AuditService, private log: Logger,
-    private hooks: { cancelSubscription: (team: Doc) => Promise<void> }) {}
+    private hooks: { cancelSubscription: (team: Doc) => Promise<void> }, private usage: UsageStore, private settings: SettingsService) {}
 
   /** What the plan allows: members plus pending invitations. A team that is not paying has room only for its owner. */
   seatsFor(plan: PlanId): number { return plan === 'business' ? this.env.TEAM_SEATS_BUSINESS : plan === 'pro' ? this.env.TEAM_SEATS_PRO : 1; }
@@ -56,9 +59,21 @@ export class TeamService {
       seats: this.seatsFor(team.plan), seatsUsed: await this.seatsUsed(team._id),
       members: members.map((m: Doc): TeamMemberView => { const u = users.get(String(m.userId)); return { userId: String(m.userId), email: u?.email ?? '', name: u?.name ?? '', role: m.role, joinedAt: new Date(m.createdAt).toISOString(), you: String(m.userId) === String(user._id) }; }),
       invites,
+      ...(await this.poolView(team, members, canManage)),
       ...(member.role === 'owner' && b?.subscriptionId ? { subscription: { status: b.status, plan: b.plan, currentPeriodEnd: b.currentPeriodEnd?.toISOString(), cancelAtPeriodEnd: b.cancelAtPeriodEnd } } : {}),
       createdAt: new Date(team.createdAt).toISOString(),
     };
+  }
+
+  /** The shared daily allowance of a team on a paid plan (see PoolContext). Owners and admins also get each member's share. */
+  private async poolView(team: Doc, members: Doc[], canManage: boolean): Promise<{ pool?: NonNullable<TeamView['pool']> }> {
+    if (team.plan === 'free') return {};
+    const perMember = (await this.settings.plan(team.plan)).dailyOps;
+    const shares = await this.usage.opsByPrefix(`tm:${team._id}:`);
+    return { pool: {
+      opsToday: await this.usage.ops(poolKey(String(team._id))), limit: perMember * Math.max(1, members.length), perMember,
+      ...(canManage ? { byMember: members.map((m: Doc) => ({ userId: String(m.userId), ops: shares[memberKey(String(team._id), String(m.userId))] ?? 0 })) } : {}),
+    } };
   }
 
   async create(req: Request, user: UserDoc, name: string): Promise<void> {
@@ -226,6 +241,7 @@ export class TeamService {
     await MemberModel.deleteMany({ teamId: team._id });
     await InviteModel.deleteMany({ teamId: team._id });
     await TeamModel.deleteOne({ _id: team._id });
+    await this.usage.deleteTeamUsage(String(team._id));
   }
 
   /** Called before an account is deleted: leave quietly, or take a solo team with you. An owner with a team of others must hand it over first. */

@@ -3,7 +3,7 @@ import { changePasswordSchema, profileSchema, reauthSchema, securityKeyRegisterS
 import { z } from 'zod';
 import { ok, wrap } from '../../middleware/common.js';
 import { requireUser } from '../auth/middleware.js';
-import { planInfo } from '../teams/plan.js';
+import { memberKey, planInfo } from '../teams/plan.js';
 import { userView, type AuthService } from '../auth/service.js';
 import type { SecurityKeyService } from '../auth/webauthn.js';
 import type { JobService } from '../jobs/service.js';
@@ -67,12 +67,15 @@ export function accountRoutes(deps: { auth: AuthService; securityKeys: SecurityK
 
   r.get('/usage', wrap(async (req, res) => {
     const plan = await deps.settings.plan(req.effectivePlan ?? req.user.plan);
-    const series = await deps.usage.series(`u:${req.user._id}`, 30);
+    const pool = req.pool;
+    // Pooled: what gates this person is the team's shared counter, so that is what they are shown (with their own share).
+    const series = await deps.usage.series(pool ? pool.key : `u:${req.user._id}`, 30);
     const view: UsageView = {
       plan: plan.id,
-      today: { ops: series.find((d) => d.day === today())?.ops ?? 0, limit: plan.dailyOps },
+      today: { ops: series.find((d) => d.day === today())?.ops ?? 0, limit: plan.dailyOps * (pool?.members ?? 1) },
       limits: { maxFileMB: plan.maxFileMB, maxPages: plan.maxPages, maxFiles: plan.maxFiles, maxConcurrentJobs: plan.maxConcurrentJobs, retentionMinutes: plan.retentionMinutes },
       last30Days: series,
+      ...(pool ? { pool: { team: pool.teamName, members: pool.members, yourOpsToday: await deps.usage.ops(memberKey(pool.teamId, String(req.user._id))) } } : {}),
     };
     ok(res, view);
   }));

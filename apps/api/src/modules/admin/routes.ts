@@ -16,6 +16,8 @@ import type { MongoJobStore } from '../jobs/mongo-store.js';
 import type { SettingsService } from '../settings/service.js';
 
 const page = z.object({ page: z.coerce.number().int().min(1).default(1), pageSize: z.coerce.number().int().min(1).max(100).default(25) });
+/** Each operation is recorded under more than one key (a guest's cookie and IP; a team member's share of the pool). Count it once. */
+const COUNTED_KEYS = { $not: /^(ip|tm):/ };
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 export function adminRoutes(deps: { env: Env; jobs: JobService; jobStore: MongoJobStore; settings: SettingsService; audit: AuditService; auth: AuthService }) {
@@ -94,8 +96,8 @@ export function adminRoutes(deps: { env: Env; jobs: JobService; jobStore: MongoJ
   r.get('/usage', wrap(async (req, res) => {
     const days = z.coerce.number().int().min(1).max(90).default(14).parse(req.query.days);
     const from = new Date(Date.now() - (days - 1) * 86400_000).toISOString().slice(0, 10);
-    const rows = (await UsageModel.aggregate([{ $match: { day: { $gte: from } } }, { $group: { _id: '$day', ops: { $sum: '$ops' }, owners: { $sum: 1 } } }, { $sort: { _id: 1 } }])) as { _id: string; ops: number; owners: number }[];
-    const tools = (await UsageModel.aggregate([{ $match: { day: { $gte: from } } }, { $project: { t: { $objectToArray: '$byTool' } } }, { $unwind: '$t' }, { $group: { _id: '$t.k', ops: { $sum: '$t.v' } } }, { $sort: { ops: -1 } }, { $limit: 20 }])) as { _id: string; ops: number }[];
+    const rows = (await UsageModel.aggregate([{ $match: { day: { $gte: from }, key: COUNTED_KEYS } }, { $group: { _id: '$day', ops: { $sum: '$ops' }, owners: { $sum: 1 } } }, { $sort: { _id: 1 } }])) as { _id: string; ops: number; owners: number }[];
+    const tools = (await UsageModel.aggregate([{ $match: { day: { $gte: from }, key: COUNTED_KEYS } }, { $project: { t: { $objectToArray: '$byTool' } } }, { $unwind: '$t' }, { $group: { _id: '$t.k', ops: { $sum: '$t.v' } } }, { $sort: { ops: -1 } }, { $limit: 20 }])) as { _id: string; ops: number }[];
     ok(res, { days: rows.map((x) => ({ day: x._id, ops: x.ops, activeOwners: x.owners })), topTools: tools.map((t) => ({ tool: t._id, ops: t.ops })) });
   }));
 
