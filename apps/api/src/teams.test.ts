@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import request from 'supertest';
 import Stripe from 'stripe';
 import { MongoMemoryServer } from 'mongodb-memory-server';
@@ -238,6 +238,40 @@ describe('seats', () => {
     expect(rs.filter((r) => r.status === 201).length).toBeGreaterThanOrEqual(1);
     expect(rs.filter((r) => r.status === 201).length).toBeLessThanOrEqual(2); // 3 seats, the owner holds one
   });
+
+  it('when invitations interleave (slow database), exactly the free seats are granted: not zero, not too many', async () => {
+    // Force the bad interleaving deterministically: every request passes the seat check before any of them inserts, and every
+    // insert lands before any request recounts. Without serialisation all six then see "over capacity" and back out, so nobody
+    // gets a seat that was free.
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const create = InviteModel.create.bind(InviteModel) as (...a: unknown[]) => Promise<unknown>;
+    const spy = vi.spyOn(InviteModel, 'create').mockImplementation((async (...a: unknown[]) => { await sleep(60); const doc = await create(...a); await sleep(60); return doc; }) as never);
+    // Back-outs are progressive (each delete lowers the next recount), so also hold the deletes until every recount has run.
+    const del = InviteModel.deleteOne.bind(InviteModel) as (...a: unknown[]) => Promise<unknown>;
+    const spyDel = vi.spyOn(InviteModel, 'deleteOne').mockImplementation((async (...a: unknown[]) => { await sleep(150); return del(...a); }) as never);
+    try {
+      const t = await teamWith('pro'); // 3 seats, the owner holds one => 2 free
+      const people = await Promise.all(Array.from({ length: 6 }, () => signup()));
+      const rs = await Promise.all(people.map((p) => api(t.owner).post('/api/teams/mine/invites', { email: p.email })));
+      expect(rs.filter((r) => r.status === 201)).toHaveLength(2);
+      expect(rs.filter((r) => r.status === 409 && r.body.error.code === 'no_seats')).toHaveLength(4);
+      expect((await api(t.owner).get('/api/teams/mine')).body.data.seatsUsed).toBe(3);
+      // the lock is released afterwards, so a later change is not blocked
+      expect((await TeamModel.findById(t.teamId))!.get('seatLockToken')).toBeFalsy();
+    } finally { spy.mockRestore(); spyDel.mockRestore(); }
+  });
+
+  it('a lock left behind by a crashed request expires by itself; one that stays held gives a clear "busy" error, not a hang', async () => {
+    const t = await teamWith('pro');
+    const [a, b] = [await signup(), await signup()];
+    await TeamModel.updateOne({ _id: t.teamId }, { $set: { seatLockToken: 'dead-holder', seatLockUntil: new Date(Date.now() - 1000) } });
+    expect((await api(t.owner).post('/api/teams/mine/invites', { email: a.email })).status).toBe(201);
+    await TeamModel.updateOne({ _id: t.teamId }, { $set: { seatLockToken: 'live-holder', seatLockUntil: new Date(Date.now() + 60_000) } });
+    const r = await api(t.owner).post('/api/teams/mine/invites', { email: b.email });
+    expect(r.status).toBe(503); expect(r.body.error.code).toBe('busy');
+    // and a request that gave up must not have released somebody else's lock
+    expect((await TeamModel.findById(t.teamId))!.get('seatLockToken')).toBe('live-holder');
+  }, 20_000);
 
   it('a lapsed subscription shrinks the team to one seat without evicting anyone, and blocks new invitations', async () => {
     const t = await teamWith('pro', 2);

@@ -80,6 +80,28 @@ export class TeamService {
     await this.audit.record(`u:${user._id}`, 'team.renamed', { req, target: `t:${team._id}` });
   }
 
+  /**
+   * Run `fn` while holding the team's seat lock. Checking the seat count and then inserting an invitation is not atomic, so
+   * concurrent invitations could all pass the check and then all back out (nobody gets the seat) or, worse, oversubscribe.
+   * The lock is a lease in the team document (works across API processes) that expires on its own if the holder dies.
+   */
+  private async withSeatLock<T>(teamId: unknown, fn: () => Promise<T>): Promise<T> {
+    const token = newOpaqueToken();
+    const give_up = Date.now() + 5000;
+    for (;;) {
+      const now = new Date();
+      const got = await TeamModel.findOneAndUpdate(
+        { _id: teamId, $or: [{ seatLockUntil: null }, { seatLockUntil: { $lte: now } }] },
+        { $set: { seatLockToken: token, seatLockUntil: new Date(now.getTime() + 10_000) } },
+      );
+      if (got) break;
+      if (Date.now() > give_up) throw new HttpError(503, 'busy', 'Several changes to this team are happening at once. Please try again in a moment.');
+      await new Promise((r) => setTimeout(r, 10 + Math.random() * 30));
+    }
+    try { return await fn(); }
+    finally { await TeamModel.updateOne({ _id: teamId, seatLockToken: token }, { $set: { seatLockToken: null, seatLockUntil: null } }).catch((e) => this.log.error({ err: e }, 'could not release the team seat lock')); }
+  }
+
   // ------------------------------------------------------------------ invitations
   async invite(req: Request, user: UserDoc, email: string, role: 'admin' | 'member') {
     const { team, member } = await this.need(user);
@@ -90,21 +112,24 @@ export class TeamService {
     // Say "already invited" before "no seats": a pending invitation holds a seat itself, and that is the more useful message.
     if (await InviteModel.exists({ teamId: team._id, email, expiresAt: { $gt: new Date() } })) throw new HttpError(409, 'already_invited', 'That address already has a pending invitation. Cancel it first to send a new one.');
     const seats = this.seatsFor(team.plan);
-    if ((await this.seatsUsed(team._id)) >= seats) {
-      throw new HttpError(409, 'no_seats', team.plan === 'free' ? 'This team has no free seats. Subscribe to a paid plan to add people.' : `All ${seats} seats on the ${team.plan} plan are taken (members and pending invitations). Remove someone or cancel an invitation first.`);
-    }
-    // An old, expired invitation for the same address would collide with the unique index: clear it.
-    await InviteModel.deleteMany({ teamId: team._id, email, expiresAt: { $lte: new Date() } });
     const token = newOpaqueToken();
-    let invite: Doc;
-    try {
-      invite = await InviteModel.create({ teamId: team._id, email, role, tokenHash: sha256(token), invitedBy: user._id, expiresAt: new Date(Date.now() + this.env.TEAM_INVITE_TTL_DAYS * 86400_000) });
-    } catch (e) {
-      if ((e as { code?: number }).code === 11000) throw new HttpError(409, 'already_invited', 'That address already has a pending invitation. Cancel it first to send a new one.');
-      throw e;
-    }
-    // Two invitations racing for the last seat can both pass the check above; recount and back out if we overshot (never oversubscribe).
-    if ((await this.seatsUsed(team._id)) > seats) { await InviteModel.deleteOne({ _id: invite._id }); throw new HttpError(409, 'no_seats', 'No free seats are left.'); }
+    const invite = await this.withSeatLock(team._id, async () => {
+      if ((await this.seatsUsed(team._id)) >= seats) {
+        throw new HttpError(409, 'no_seats', team.plan === 'free' ? 'This team has no free seats. Subscribe to a paid plan to add people.' : `All ${seats} seats on the ${team.plan} plan are taken (members and pending invitations). Remove someone or cancel an invitation first.`);
+      }
+      // An old, expired invitation for the same address would collide with the unique index: clear it.
+      await InviteModel.deleteMany({ teamId: team._id, email, expiresAt: { $lte: new Date() } });
+      let invite: Doc;
+      try {
+        invite = await InviteModel.create({ teamId: team._id, email, role, tokenHash: sha256(token), invitedBy: user._id, expiresAt: new Date(Date.now() + this.env.TEAM_INVITE_TTL_DAYS * 86400_000) });
+      } catch (e) {
+        if ((e as { code?: number }).code === 11000) throw new HttpError(409, 'already_invited', 'That address already has a pending invitation. Cancel it first to send a new one.');
+        throw e;
+      }
+      // Two invitations racing for the last seat can both pass the check above; recount and back out if we overshot (never oversubscribe).
+      if ((await this.seatsUsed(team._id)) > seats) { await InviteModel.deleteOne({ _id: invite._id }); throw new HttpError(409, 'no_seats', 'No free seats are left.'); }
+      return invite;
+    });
     const link = `${this.env.PUBLIC_URL.replace(/\/$/, '')}/team/join?token=${token}`;
     try {
       await this.mailer.send({ to: email, subject: `${user.name || user.email} invited you to join ${team.name} on ${this.env.BRAND_NAME}`, text: `You have been invited to join the team "${team.name}" as ${role === 'admin' ? 'an admin' : 'a member'}.\n\nSign in (or create an account) with this email address, confirm it, and open this link within ${this.env.TEAM_INVITE_TTL_DAYS} days:\n\n${link}\n\nIf you do not know this team, ignore this email.` });

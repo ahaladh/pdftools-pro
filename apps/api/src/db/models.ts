@@ -56,6 +56,9 @@ const teamSchema = new Schema({
   /** What the team pays for. Follows the subscription: back to 'free' when it ends. */
   plan: { type: String, enum: ['free', 'pro', 'business'], default: 'free' },
   billing: { customerId: String, subscriptionId: String, status: String, plan: String, currentPeriodEnd: Date, cancelAtPeriodEnd: Boolean },
+  /** Short-lived mutex that serialises seat-consuming changes (invitations); expires by itself if its holder dies. */
+  seatLockToken: String,
+  seatLockUntil: Date,
 }, { timestamps: true });
 
 const memberSchema = new Schema({
