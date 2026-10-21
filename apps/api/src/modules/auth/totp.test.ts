@@ -59,15 +59,15 @@ describe('secrets at rest', () => {
     expect(a).not.toBe(b);
     expect(openSecret(key, a).equals(RFC_SECRET)).toBe(true);
     expect(a).not.toContain(base32Encode(RFC_SECRET));
-    expect(Buffer.from(a.split('.')[3]!, 'base64url').includes(RFC_SECRET)).toBe(false);
+    expect(Buffer.from(a.split('.')[4]!, 'base64url').includes(RFC_SECRET)).toBe(false); // v2.<key id>.<iv>.<tag>.<ciphertext>
   });
   it('detects tampering, truncation, the wrong key and unknown formats', () => {
     const s = sealSecret(key, RFC_SECRET).split('.');
     const flip = (i: number) => { const x = [...s]; const buf = Buffer.from(x[i]!, 'base64url'); buf[0] = buf[0]! ^ 1; x[i] = buf.toString('base64url'); return x.join('.'); };
-    for (const i of [1, 2, 3]) expect(() => openSecret(key, flip(i))).toThrow();
+    for (const i of [1, 2, 3, 4]) expect(() => openSecret(key, flip(i))).toThrow(); // key id, iv, tag, ciphertext
     expect(() => openSecret('x'.repeat(40), s.join('.'))).toThrow();
     expect(() => openSecret(key, s.slice(0, 3).join('.'))).toThrow();
-    expect(() => openSecret(key, ['v2', ...s.slice(1)].join('.'))).toThrow();
+    expect(() => openSecret(key, ['v9', ...s.slice(1)].join('.'))).toThrow(); // unknown version
   });
 });
 

@@ -62,19 +62,61 @@ export function otpauthUri(opts: { issuer: string; account: string; secret: Uint
 
 // ---------------------------------------------------------------- secrets at rest (AES-256-GCM)
 const keyFrom = (ikm: string) => Buffer.from(hkdfSync('sha256', ikm, 'pdftools', 'two-factor-secret-v1', 32));
-/** `v1.<iv>.<tag>.<ciphertext>` (base64url). A fresh random IV per message; the tag makes tampering detectable. */
+/** A short, non-reversible name for a key, stored beside what it sealed so operators can tell which key is in use. */
+export const keyId = (ikm: string): string => createHmac('sha256', keyFrom(ikm)).update('pdftools-key-id').digest().subarray(0, 6).toString('base64url');
+
+/** None of the configured keys opens this value (the wrong key, a key that was dropped too early, or tampering). */
+export class SecretKeyError extends Error { constructor(message = 'no configured key opens this secret') { super(message); this.name = 'SecretKeyError'; } }
+
+/**
+ * `v2.<keyId>.<iv>.<tag>.<ciphertext>` (base64url, AES-256-GCM): a fresh random IV per message; the tag makes tampering
+ * detectable and the key id is authenticated with the message. Values written by earlier versions, `v1.<iv>.<tag>.<ct>`
+ * (no key id), still open.
+ */
 export function sealSecret(ikm: string, plain: Uint8Array): string {
   const iv = randomBytes(12);
+  const kid = keyId(ikm);
   const c = createCipheriv('aes-256-gcm', keyFrom(ikm), iv);
+  c.setAAD(Buffer.from(`v2.${kid}`));
   const ct = Buffer.concat([c.update(plain), c.final()]);
-  return ['v1', iv.toString('base64url'), c.getAuthTag().toString('base64url'), ct.toString('base64url')].join('.');
+  return ['v2', kid, iv.toString('base64url'), c.getAuthTag().toString('base64url'), ct.toString('base64url')].join('.');
 }
-export function openSecret(ikm: string, sealed: string): Buffer {
-  const [v, iv, tag, ct] = sealed.split('.');
-  if (v !== 'v1' || !iv || !tag || !ct) throw new Error('unrecognised secret format');
-  const d = createDecipheriv('aes-256-gcm', keyFrom(ikm), Buffer.from(iv, 'base64url'));
-  d.setAuthTag(Buffer.from(tag, 'base64url'));
-  return Buffer.concat([d.update(Buffer.from(ct, 'base64url')), d.final()]);
+
+export interface Opened { plain: Buffer; /** Index into the keys offered: 0 is the current key. */ keyIndex: number; format: 'v1' | 'v2' }
+/** Open with the first key that works. Returns null when none does; throws only for text that is not a sealed secret at all. */
+export function tryOpenSecret(keys: readonly string[], sealed: string): Opened | null {
+  const parts = sealed.split('.');
+  const v = parts[0];
+  if (v === 'v2' && parts.length === 5) {
+    const [, kid, iv, tag, ct] = parts as [string, string, string, string, string];
+    for (const [i, ikm] of keys.entries()) {
+      if (keyId(ikm) !== kid) continue;
+      try {
+        const d = createDecipheriv('aes-256-gcm', keyFrom(ikm), Buffer.from(iv, 'base64url'));
+        d.setAAD(Buffer.from(`v2.${kid}`)); d.setAuthTag(Buffer.from(tag, 'base64url'));
+        return { plain: Buffer.concat([d.update(Buffer.from(ct, 'base64url')), d.final()]), keyIndex: i, format: 'v2' };
+      } catch { /* wrong key or tampered */ }
+    }
+    return null;
+  }
+  if (v === 'v1' && parts.length === 4) {
+    const [, iv, tag, ct] = parts as [string, string, string, string];
+    for (const [i, ikm] of keys.entries()) {
+      try {
+        const d = createDecipheriv('aes-256-gcm', keyFrom(ikm), Buffer.from(iv, 'base64url'));
+        d.setAuthTag(Buffer.from(tag, 'base64url'));
+        return { plain: Buffer.concat([d.update(Buffer.from(ct, 'base64url')), d.final()]), keyIndex: i, format: 'v1' };
+      } catch { /* try the next key */ }
+    }
+    return null;
+  }
+  throw new Error('unrecognised secret format');
+}
+/** Open with the current key, or any of the previous ones while a rotation is in progress. */
+export function openSecret(keys: string | readonly string[], sealed: string): Buffer {
+  const r = tryOpenSecret(typeof keys === 'string' ? [keys] : keys, sealed);
+  if (!r) throw new SecretKeyError();
+  return r.plain;
 }
 
 // ---------------------------------------------------------------- recovery codes

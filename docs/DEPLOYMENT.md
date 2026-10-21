@@ -126,6 +126,7 @@ node apps/api/dist/worker.js                      # worker (SIGTERM = finish run
 |---|---|---|
 | `node apps/api/dist/doctor.js [--deep] [--json]` | reviews configuration (https URLs, secret strength, proxy trust, rate limiting, isolation, Stripe pairing), checks every engine, proves the kernel enforces memory limits, storage/disk, MongoDB + migrations, Redis (+ eviction policy); `--deep` also converts a document under the production limits. Exit 1 on any failure | after every config change, as a deploy gate |
 | `node apps/api/dist/migrate.js status\|up` | schema state / apply pending migrations | before rollouts if you use `MIGRATIONS=check` |
+| `node apps/api/dist/rotate2fa.js status\|run [--dry-run]` | which key each authenticator secret is under / re-seal under a new `TWO_FACTOR_KEY` | only while rotating that key (OPERATIONS.md, *Rotating the two-factor key*) |
 | `node infrastructure/scripts/smoke.mjs <url> [--insecure] [--json] [--api-only]` | public liveness, home page, headers, deep link, config, internal endpoints not exposed, **a real guest merge job through the queue and workers**, download, delete | after every deploy, and from a monitor if you like |
 
 ## Data initialisation and migrations

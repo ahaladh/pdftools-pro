@@ -116,7 +116,7 @@ They have lost their phone **and** their recovery codes. First make sure the req
 
 If **security keys** stop working for everyone at once after a domain or proxy change, the RP ID or origin no longer matches what the keys were registered under (`doctor` flags a mismatch). Restore the old `PUBLIC_URL`/`WEBAUTHN_RP_ID`, or have users sign in with a recovery code and register their keys again. A single user who lost their key and their recovery codes needs the admin 2FA reset, which also removes their keys.
 
-If **everyone** with 2FA is suddenly unable to sign in with a valid code, the encryption key probably changed: `TWO_FACTOR_KEY` (or `JWT_ACCESS_SECRET` if that is what you rely on) no longer matches what the secrets were sealed with. Restore the old value. There is no re-encryption tool yet, so do not rotate the key without one.
+If **everyone** with 2FA is suddenly unable to sign in with a valid code, the encryption key probably changed: `TWO_FACTOR_KEY` (or `JWT_ACCESS_SECRET` if that is what you rely on) no longer matches what the secrets were sealed with. Restore the old value (or list it in `TWO_FACTOR_KEY_PREVIOUS`): a changed key is not a problem when the old one is still configured, see *Rotating the two-factor key* below. Signing in as such a user answers `503 two_factor_unavailable` (and logs the user id), not "wrong code", and does not count towards the lockout; their recovery codes still work.
 
 ### Team questions
 
@@ -163,15 +163,29 @@ Alert: `PdfToolsStorageNearlyFull`. Results are deleted at retention; inputs imm
 5. **Rollback**: redeploy the previous version. Migrations are forward-only, so the old code refuses to start against a newer schema (`database has migrations this version does not know`). If a migration ran, restore the pre-upgrade backup (`restore.sh --drop`) and then start the old version. Code-only releases (no new migration) roll back by redeploying.
 6. Zero-downtime: run at least two API instances behind nginx (`upstream` with several servers); restart one at a time. Workers can be restarted any time: they finish running jobs first.
 
+## Rotating the two-factor key
+
+Authenticator secrets are encrypted at rest with `TWO_FACTOR_KEY` (or `JWT_ACCESS_SECRET` if that is unset). Each is stored with a short, non-reversible id of the key that sealed it. Rotating needs no downtime and locks nobody out, provided the steps are done in this order:
+
+1. Generate the new key: `openssl rand -hex 32`.
+2. Set `TWO_FACTOR_KEY=<new>` and `TWO_FACTOR_KEY_PREVIOUS=<old>` on **every** API instance and worker, and deploy. Secrets sealed with the old key keep working (they are opened with the previous key); new ones are sealed with the new key. If you never set `TWO_FACTOR_KEY` before, the old key is your `JWT_ACCESS_SECRET` value. `doctor` warns for as long as `TWO_FACTOR_KEY_PREVIOUS` is set.
+3. `node apps/api/dist/rotate2fa.js status` (Docker: `docker compose exec api node apps/api/dist/rotate2fa.js status`; from a checkout: `npm run rotate-2fa -w @pdftools/api -- status`) shows how many secrets are under each key (`current`, `previous#1`…) and whether any cannot be opened. Then `… run --dry-run`, then `… run` to re-seal. It is safe on a live system and safe to repeat or interrupt: each write only replaces the exact value it read, so a user who changes their setup meanwhile is left alone (it reports them; run it again).
+4. When `status` shows everything on `current` and exits 0, remove `TWO_FACTOR_KEY_PREVIOUS` and deploy again. **Do not remove it earlier**: anyone still sealed with the old key would get `two_factor_unavailable`.
+
+Anything the tool reports as *cannot be opened* is left untouched. Add the key that sealed it to `TWO_FACTOR_KEY_PREVIOUS` and run again; if that key is gone for good, an administrator resets those users' two-step sign-in (Users tab), after which they set it up again. The tool never prints keys, secrets or emails, only counts and user ids. Back up the database before the first run (see *Backups*).
+
+**To rotate `JWT_ACCESS_SECRET` when `TWO_FACTOR_KEY` was never set:** first set `TWO_FACTOR_KEY` to the *current* JWT secret value (nothing needs re-sealing: it is the same key) and only then change the JWT secret, or every authenticator secret becomes unreadable.
+
 ## Secret rotation
 
 | Secret | Procedure | Effect |
 |---|---|---|
-| `JWT_ACCESS_SECRET` | set a new value on all API instances, restart | access tokens (15 min) become invalid; clients refresh transparently using the refresh cookie |
+| `JWT_ACCESS_SECRET` | if `TWO_FACTOR_KEY` is unset, pin it to the current value first (see above); then set a new value on all API instances, restart | access tokens (15 min) become invalid; clients refresh transparently using the refresh cookie |
 | `DOWNLOAD_SECRET` | set new value on all API instances, restart | outstanding download links (10 min) stop working; users re-click Download |
 | `METRICS_TOKEN` | change in env and in Prometheus's token file | scraping fails until both match |
 | MongoDB/Redis passwords | update the server, then the URIs, restart API and workers | brief downtime |
 | Stripe keys / webhook secret | roll in the Stripe dashboard, update env, restart | webhooks with the old secret are rejected (Stripe retries) |
+| `TWO_FACTOR_KEY` | the procedure above (`TWO_FACTOR_KEY_PREVIOUS`, `rotate-2fa`) | none for users |
 | Admin password | admin → change password | other sessions signed out |
 
 ## Capacity and tuning

@@ -47,6 +47,7 @@ export function checkConfig(env: Env): DoctorCheck[] {
       const wa = webauthnConfig(env), problems = webauthnProblems(wa);
       add('security keys (WebAuthn)', problems.length ? (prod ? 'fail' : 'warn') : 'pass', problems.length ? problems.join('; ') : `RP ID ${wa.rpID}, origins ${wa.origins.join(', ')} (changing the RP ID later makes every registered key unusable)`);
     } catch { add('security keys (WebAuthn)', 'fail', 'PUBLIC_URL is not a valid URL, so security keys cannot work'); }
+    if (env.TWO_FACTOR_KEY_PREVIOUS.length) add('two-factor key rotation', 'warn', `${env.TWO_FACTOR_KEY_PREVIOUS.length} previous key(s) configured: a rotation is in progress. Run \`rotate-2fa status\`; once everything is on the current key, remove TWO_FACTOR_KEY_PREVIOUS`);
     add('admin two-step sign-in', adminTwoFactorRequired(env) ? 'pass' : prod ? 'warn' : 'pass', adminTwoFactorRequired(env) ? 'required for administrators' : prod ? 'REQUIRE_ADMIN_2FA=false: administrators can use the admin area with just a password (use only briefly, to recover)' : 'off (default outside production)');
     add('verified email for checkout', env.REQUIRE_VERIFIED_EMAIL ? 'pass' : prod ? 'warn' : 'pass', env.REQUIRE_VERIFIED_EMAIL ? 'required' : 'REQUIRE_VERIFIED_EMAIL is off: an unconfirmed address can start a paid checkout');
     add('bootstrap admin', env.ADMIN_PASSWORD ? 'warn' : 'pass', env.ADMIN_PASSWORD ? 'ADMIN_PASSWORD is still set: remove it after the first start' : 'not set');

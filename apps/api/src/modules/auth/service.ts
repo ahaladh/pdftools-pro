@@ -12,7 +12,8 @@ import { burnPasswordCheck, hashPassword, verifyPassword } from './password.js';
 import { planInfo } from '../teams/plan.js';
 import { adminTwoFactorRequired } from './policy.js';
 import { newOpaqueToken, sha256, signAccessToken, signMfaChallenge, verifyMfaChallenge } from './tokens.js';
-import { hashRecovery, looksLikeRecovery, newRecoveryCodes, newTotpSecret, openSecret, otpauthUri, sealSecret, base32Encode, verifyTotp } from './totp.js';
+import { twoFactorKeys } from './keyring.js';
+import { SecretKeyError, hashRecovery, looksLikeRecovery, newRecoveryCodes, newTotpSecret, openSecret, otpauthUri, sealSecret, base32Encode, verifyTotp } from './totp.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type UserDoc = any;
@@ -83,7 +84,18 @@ export class AuthService {
   }
 
   // ------------------------------------------------------------------ two-factor
-  private key() { return this.env.TWO_FACTOR_KEY ?? this.env.JWT_ACCESS_SECRET; }
+  /** Current key first: it seals new secrets. Earlier keys (during a rotation) can still open old ones. */
+  private keys() { return twoFactorKeys(this.env); }
+  private key() { return this.keys()[0]!; }
+  /** Open a stored authenticator secret; a secret none of our keys opens is an operator problem, not a wrong code. */
+  private openStored(sealed: string, userId: unknown): Buffer {
+    try { return openSecret(this.keys(), sealed); }
+    catch (e) {
+      if (!(e instanceof SecretKeyError) && !(e instanceof Error && /unrecognised secret format/.test(e.message))) throw e;
+      this.log.error({ userId: String(userId) }, 'authenticator secret cannot be opened with the configured two-factor keys (TWO_FACTOR_KEY / TWO_FACTOR_KEY_PREVIOUS)');
+      throw new HttpError(503, 'two_factor_unavailable', 'Two-step verification is temporarily unavailable for this account. Please contact support.');
+    }
+  }
 
   /**
    * While the policy is on, an administrator may not drop to no second factor. `left` is what would remain afterwards.
@@ -120,7 +132,7 @@ export class AuthService {
       ok = r.modifiedCount === 1;
       if (ok) await this.audit.record(`u:${user._id}`, 'auth.recovery_code_used', { req });
     } else if (hasTotp(user)) {
-      const step = verifyTotp(openSecret(this.key(), user.twoFactor.secretEnc), code, Date.now(), { lastStep: user.twoFactor.lastStep });
+      const step = verifyTotp(this.openStored(user.twoFactor.secretEnc, user._id), code, Date.now(), { lastStep: user.twoFactor.lastStep });
       if (step !== null) {
         const r = await UserModel.updateOne({ _id: user._id, $or: [{ 'twoFactor.lastStep': { $lt: step } }, { 'twoFactor.lastStep': { $exists: false } }] }, { $set: { 'twoFactor.lastStep': step } });
         ok = r.modifiedCount === 1;
@@ -180,7 +192,9 @@ export class AuthService {
   async enableTwoFactor(req: Request, user: UserDoc, code: string): Promise<{ recoveryCodes: string[]; session: Session }> {
     const p = user.twoFactorPending;
     if (!p?.secretEnc || Date.now() - new Date(p.createdAt).getTime() > PENDING_2FA_MS) throw new HttpError(400, 'no_pending_setup', 'Start the setup again.');
-    const step = verifyTotp(openSecret(this.key(), p.secretEnc), code, Date.now());
+    let secretBytes: Buffer;
+    try { secretBytes = openSecret(this.keys(), p.secretEnc); } catch { throw new HttpError(400, 'no_pending_setup', 'Start the setup again.'); }
+    const step = verifyTotp(secretBytes, code, Date.now());
     if (step === null) throw new HttpError(400, 'invalid_code', 'That code is not valid. Check your authenticator app and try again.');
     const codes = newRecoveryCodes();
     user.twoFactor = { secretEnc: p.secretEnc, enabledAt: new Date(), lastStep: step, recoveryHashes: codes.map(hashRecovery), failed: 0 };

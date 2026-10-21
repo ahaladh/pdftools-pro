@@ -96,6 +96,12 @@ const schema = z.object({
   VERIFY_TOKEN_TTL_HOURS: num(24),
   /** Encrypts two-factor secrets at rest. Falls back to JWT_ACCESS_SECRET; set it separately so rotating the JWT secret does not lock users out. */
   TWO_FACTOR_KEY: z.string().min(32).optional(),
+  /**
+   * Earlier values of TWO_FACTOR_KEY (or the JWT secret it replaced), comma-separated, only while rotating: secrets sealed
+   * with them still open, new ones are sealed with the current key. Remove once `rotate-2fa status` shows nothing left on them.
+   */
+  TWO_FACTOR_KEY_PREVIOUS: z.string().optional().transform((v) => (v ?? '').split(',').map((s) => s.trim()).filter(Boolean))
+    .refine((l) => l.length <= 3 && l.every((k) => k.length >= 32), 'TWO_FACTOR_KEY_PREVIOUS: up to 3 keys, each at least 32 characters, comma-separated'),
   MAIL_FROM: z.string().default('PDFTools Pro <no-reply@localhost>'),
   /** Optional first-admin bootstrap: created at startup only if no user has this email. */
   ADMIN_EMAIL: z.string().email().optional(),
