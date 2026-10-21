@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile, readFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { PDFDocument, StandardFonts } from '@cantoo/pdf-lib';
+import { PDFDocument, PDFName, StandardFonts } from '@cantoo/pdf-lib';
 import { zipSync, unzipSync, strToU8 } from 'fflate';
 import { processTool, type InputFile } from './index.js';
 
@@ -166,4 +166,78 @@ describe('forms, compare, repair, office', () => {
     const p = join(root, 'bad.docx'); await writeFile(p, 'PK\x03\x04 garbage');
     await expect(run('office-to-pdf', [{ path: p, name: 'bad.docx', kind: 'office' }], {}, 120_000)).rejects.toMatchObject({ code: 'engine_failed' });
   }, 150_000);
+});
+
+describe('fill-form', () => {
+  async function formPdf(name: string, extra?: (form: ReturnType<PDFDocument['getForm']>, page: ReturnType<PDFDocument['addPage']>) => void) {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([400, 500]);
+    const form = doc.getForm();
+    form.createTextField('person.name').addToPage(page, { x: 20, y: 440, width: 200, height: 24 });
+    const cb = form.createCheckBox('agree'); cb.addToPage(page, { x: 20, y: 400, width: 18, height: 18 });
+    const rg = form.createRadioGroup('size'); for (const [i, o] of ['small', 'large'].entries()) rg.addOptionToPage(o, page, { x: 20 + i * 60, y: 360, width: 16, height: 16 });
+    const dd = form.createDropdown('country'); dd.addOptions(['India', 'Norway']); dd.addToPage(page, { x: 20, y: 310, width: 150, height: 24 });
+    const ml = form.createTextField('note'); ml.enableMultiline(); ml.setMaxLength(12); ml.addToPage(page, { x: 20, y: 200, width: 200, height: 80 });
+    const ro = form.createTextField('locked'); ro.setText('fixed'); ro.enableReadOnly(); ro.addToPage(page, { x: 20, y: 160, width: 100, height: 20 });
+    extra?.(form, page);
+    const path = join(root, `${name}.pdf`); await writeFile(path, await doc.save());
+    return { path, name: `${name}.pdf`, kind: 'pdf' as const };
+  }
+
+  it('fills every field type and the values read back', async () => {
+    const r = await run('fill-form', [await formPdf('ff1')], { values: { 'person.name': 'Åsa Lindqvist', agree: true, size: 'large', country: 'Norway', note: 'hello' } });
+    const f = (await load(r.path)).getForm();
+    expect(f.getTextField('person.name').getText()).toBe('Åsa Lindqvist');
+    expect(f.getCheckBox('agree').isChecked()).toBe(true);
+    expect(f.getRadioGroup('size').getSelected()).toBe('large');
+    expect(f.getDropdown('country').getSelected()).toEqual(['Norway']);
+    expect(r.stats).toMatchObject({ filled: 5, fields: 6 });
+  });
+
+  it('flatten makes the answers page content that an independent extractor sees, and removes the fields', async () => {
+    const r = await run('fill-form', [await formPdf('ff2')], { values: { 'person.name': 'Alice Example', country: 'India', note: 'two\nlines' }, flatten: true });
+    expect((await load(r.path)).getForm().getFields()).toHaveLength(0);
+    const t = text(r.path);
+    expect(t).toContain('Alice Example'); expect(t).toContain('India'); expect(t).toContain('two'); expect(t).toContain('lines');
+  });
+
+  it('without flatten, the filled values are drawn (appearance streams exist) and fields remain', async () => {
+    const r = await run('fill-form', [await formPdf('ff3')], { values: { 'person.name': 'Visible Value' } });
+    expect((await load(r.path)).getForm().getFields().length).toBe(6);
+    // pdftotext renders widget appearances, so this proves an appearance was generated and not just /V set
+    expect(text(r.path)).toContain('Visible Value');
+  });
+
+  it('refuses instead of guessing: unknown field, wrong type, bad option, read-only, too long, non-Latin text', async () => {
+    const src = await formPdf('ff4');
+    const bad = (values: Record<string, unknown>, re: RegExp) => expect(run('fill-form', [src], { values })).rejects.toMatchObject({ code: 'invalid_options', message: expect.stringMatching(re) });
+    await bad({ nope: 'x' }, /no such field/);
+    await bad({ agree: 'yes' }, /checked or unchecked/);
+    await bad({ size: 'medium' }, /not one of: small, large/);
+    await bad({ country: 'Atlantis' }, /not one of: India, Norway/);
+    await bad({ locked: 'changed' }, /read-only/);
+    await bad({ note: 'this is far too long' }, /longer than the field allows/);
+    await bad({ 'person.name': 'Привет' }, /Latin/);
+  });
+
+  it('errors clearly for a PDF without fields and for an empty request', async () => {
+    await expect(run('fill-form', [await makePdf(1, 'nofields')], { values: { a: 'b' } })).rejects.toMatchObject({ code: 'no_form_fields' });
+    await expect(run('fill-form', [await formPdf('ff5')], {})).rejects.toMatchObject({ code: 'invalid_options' });
+  });
+
+  it('clears a field when given an empty value, and leaves untouched fields alone', async () => {
+    const first = await run('fill-form', [await formPdf('ff6')], { values: { 'person.name': 'Temp', note: 'keep' } });
+    const second = await run('fill-form', [{ path: first.path, name: 'x.pdf', kind: 'pdf' }], { values: { 'person.name': '' } });
+    const f = (await load(second.path)).getForm();
+    expect(f.getTextField('person.name').getText()).toBeUndefined();
+    expect(f.getTextField('note').getText()).toBe('keep');
+  });
+
+  it('rejects XFA forms rather than producing a half-filled file', async () => {
+    const src = await formPdf('ff7');
+    const doc = await load(src.path, { preserveXFA: true });
+    doc.getForm().acroForm.dict.set(PDFName.of('XFA'), doc.context.obj([]));
+    const p = join(root, 'xfa.pdf'); await writeFile(p, await doc.save());
+    await expect(run('fill-form', [{ path: p, name: 'xfa.pdf', kind: 'pdf' }], { values: { note: 'x' } })).rejects.toMatchObject({ code: 'unsupported_form' });
+  });
 });

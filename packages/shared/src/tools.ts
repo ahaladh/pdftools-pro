@@ -121,6 +121,12 @@ export const optionSchemas = {
     after: z.coerce.number().int().min(0).max(100000).optional(),
   }),
   flatten: z.object({}).strict(),
+  'fill-form': z.object({
+    /** Fully-qualified field name -> new value. Text/dropdown/radio take a string, check boxes a boolean, list boxes an array. */
+    values: z.record(z.string().min(1).max(500), z.union([z.string().max(20000), z.boolean(), z.array(z.string().max(1000)).max(500)])).refine((v) => Object.keys(v).length <= 2000, 'Too many fields.').default({}),
+    /** Make the filled values permanent (removes the fields). */
+    flatten: z.boolean().default(false),
+  }),
   compare: z.object({}).strict(),
   repair: z.object({}).strict(),
   edit: annotationsOptions,
@@ -309,6 +315,12 @@ export const TOOLS: ToolDefinition[] = [
     short: 'Make form fields permanent.', description: 'Turns fillable form fields into static page content so they can no longer be edited. Other annotation types are not flattened by this tool.',
     accept: ['pdf'], multiple: false, minFiles: 1, options: optionSchemas['flatten'],
     faq: [], related: ['protect', 'compress', 'merge'],
+  },
+  {
+    id: 'fill-form', name: 'Fill PDF form', category: 'edit', status: 'available', popular: true,
+    short: 'Type into the fillable fields of a PDF.', description: 'Fill in text boxes, check boxes, radio buttons and drop-downs of a fillable PDF form, then optionally flatten it so the answers become permanent.',
+    accept: ['pdf'], multiple: false, minFiles: 1, options: optionSchemas['fill-form'],
+    faq: [{ q: 'Which forms work?', a: 'PDFs with interactive (AcroForm) fields. A scanned or printed-looking form has no fields; use Edit PDF to type text onto it instead. XFA forms (some government and bank forms) are not supported and are reported, not guessed.' }, { q: 'Can I type any language?', a: 'Text is written with the standard Latin fonts, so characters outside that set (for example Cyrillic, Arabic or CJK) are refused with a clear message instead of being replaced by blanks.' }, { q: 'What does flatten do?', a: 'It turns your answers into ordinary page content and removes the fields, so the form can no longer be edited. Leave it off if the recipient still needs to edit the form.' }, { q: 'Does it sign the form?', a: 'No. Signature fields are shown as not fillable; use Sign PDF for an image signature.' }], related: ['flatten', 'edit', 'sign'],
   },
   {
     id: 'compare', name: 'Compare PDFs', category: 'more', status: 'available',

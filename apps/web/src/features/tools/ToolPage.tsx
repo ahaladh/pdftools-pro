@@ -18,6 +18,7 @@ import { useAuth } from '@/stores/auth';
 import NotFound from '@/pages/NotFound';
 import { DEFAULT_OPTIONS, OptionPanel, preflight, toApiOptions } from './OptionPanel';
 import { PageOrganizer } from './PageOrganizer';
+import { FormFiller, type FormFill } from './FormFiller';
 import type { Built } from '@/features/workspace/model';
 
 const Workspace = lazy(() => import('@/features/workspace/Workspace').then((m) => ({ default: m.Workspace })));
@@ -48,6 +49,7 @@ function ToolPageInner({ toolId }: { toolId: string }) {
   const [options, setOptions] = useState<Record<string, unknown>>(DEFAULT_OPTIONS[toolId] ?? {});
   const [ws, setWs] = useState<Built | null>(null);
   const [organizer, setOrganizer] = useState<{ order: string; rotations: Record<string, number>; count: number } | null>(null);
+  const [form, setForm] = useState<FormFill | null>(null);
   const [phase, setPhase] = useState<Phase>('select');
   const [uploadPct, setUploadPct] = useState(0);
   const [jobId, setJobId] = useState<string | null>(null);
@@ -106,6 +108,7 @@ function ToolPageInner({ toolId }: { toolId: string }) {
 
   const buildOptions = (): unknown => {
     if (toolId === 'organize') return { order: organizer?.order ?? '', rotations: organizer?.rotations ?? {} };
+    if (toolId === 'fill-form') return { values: form?.values ?? {}, flatten: form?.flatten ?? false };
     if (isWs) return ws?.options ?? {};
     return toApiOptions(toolId, options);
   };
@@ -115,6 +118,7 @@ function ToolPageInner({ toolId }: { toolId: string }) {
     if (!isToolId(toolId)) return;
     if (files.length < tool.minFiles) { setError(`Add at least ${tool.minFiles} file${tool.minFiles > 1 ? 's' : ''}.`); return; }
     if (isWs && !ws?.count) { setError(toolId === 'redact' ? 'Mark at least one area or enter text to find and redact.' : toolId === 'edit-content' ? 'Change some text or an image first.' : 'Add at least one annotation before saving.'); return; }
+    if (toolId === 'fill-form' && !form?.count && !form?.flatten) { setError('Fill in at least one field first.'); return; }
     const pre = preflight(toolId, options);
     if (pre) { setError(pre); return; }
     const parsed = optionSchemas[toolId].safeParse(buildOptions());
@@ -189,7 +193,7 @@ function ToolPageInner({ toolId }: { toolId: string }) {
               )}
               {files.length > 0 && (
                 <div className="mt-6 space-y-6">
-                  <FileList files={files} onChange={(f) => { setFiles(f); setOrganizer(null); if (!f.length) setWs(null); }} sortable={multi && files.length > 1} disabled={busy} />
+                  <FileList files={files} onChange={(f) => { setFiles(f); setOrganizer(null); setForm(null); if (!f.length) setWs(null); }} sortable={multi && files.length > 1} disabled={busy} />
                   {isWs ? (
                     <Suspense fallback={<p className="text-sm text-slate-500" role="status">Loading editor…</p>}>
                       {tool.id === 'edit-content'
@@ -198,6 +202,8 @@ function ToolPageInner({ toolId }: { toolId: string }) {
                     </Suspense>
                   ) : tool.id === 'organize' ? (
                     <PageOrganizer file={files[0]!} disabled={busy} onChange={(order, rotations, count) => setOrganizer({ order, rotations, count })} />
+                  ) : tool.id === 'fill-form' ? (
+                    <FormFiller file={files[0]!} disabled={busy} onChange={setForm} />
                   ) : (
                     <section aria-label="Settings"><h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-600">Settings</h2><OptionPanel tool={tool.id} value={options} onChange={setOptions} disabled={busy} /></section>
                   )}

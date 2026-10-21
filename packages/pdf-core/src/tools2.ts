@@ -1,6 +1,6 @@
 import { readFile, writeFile, readdir, mkdir, copyFile, stat } from 'node:fs/promises';
 import { join, extname } from 'node:path';
-import { PDFDocument, degrees } from '@cantoo/pdf-lib';
+import { PDFDocument, StandardFonts, PDFTextField, PDFCheckBox, PDFRadioGroup, PDFDropdown, PDFOptionList, PDFSignature, PDFButton, degrees } from '@cantoo/pdf-lib';
 import { diffLines } from 'diff';
 import type { ToolId } from '@pdftools/shared';
 import { ToolError } from './errors.js';
@@ -205,6 +205,66 @@ const flatten: Processor = async (ctx) => {
   return savePdf(ctx, doc, `${baseName(f.name)}-flattened.pdf`, ['Only form fields were flattened. Other annotations are left as they are.'], { fields: count });
 };
 
+// ------------------------------------------------------------ fill form
+const kindOf = (f: unknown) => f instanceof PDFTextField ? 'text' : f instanceof PDFCheckBox ? 'checkbox' : f instanceof PDFRadioGroup ? 'radio' : f instanceof PDFDropdown ? 'dropdown' : f instanceof PDFOptionList ? 'list' : f instanceof PDFSignature ? 'signature' : f instanceof PDFButton ? 'button' : 'unknown';
+
+const fillForm: Processor = async (ctx) => {
+  const o = parseOptions('fill-form', ctx.options);
+  const f = one(ctx);
+  // pdf-lib silently discards XFA data on load unless told to keep it; keep it so we can refuse instead of returning a changed form.
+  const doc = await loadPdfFile(f.path, ctx.maxPages, { preserveXFA: true });
+  const form = doc.getForm();
+  if (form.hasXFA()) throw new ToolError('unsupported_form', 'This is an XFA form (a different, dynamic form technology). It cannot be filled here.');
+  const fields = form.getFields();
+  if (fields.length === 0) throw new ToolError('no_form_fields', 'This PDF has no fillable form fields. If it is a scan or a printed-looking form, use Edit PDF to type onto it.');
+  const entries = Object.entries(o.values);
+  if (entries.length === 0 && !o.flatten) throw new ToolError('invalid_options', 'Enter at least one value to fill in.');
+  const byName = new Map(fields.map((x) => [x.getName(), x]));
+  // pdf-lib draws characters outside the font's set as nothing or garbage without raising, so check up front.
+  const latin = new Set((await doc.embedFont(StandardFonts.Helvetica)).getCharacterSet());
+  const writable = (s: string) => [...s].every((c) => latin.has(c.codePointAt(0)!) || c === '\n' || c === '\r');
+  const fail = (name: string, why: string): never => { throw new ToolError('invalid_options', `Field "${name}": ${why}`); };
+  let filled = 0;
+  for (const [name, val] of entries) {
+    const field = byName.get(name);
+    if (!field) fail(name, 'there is no such field in this PDF.');
+    if (field!.isReadOnly()) fail(name, 'it is read-only.');
+    try {
+      if (field instanceof PDFTextField) {
+        if (typeof val !== 'string') fail(name, 'expects text.');
+        if (!writable(val as string)) fail(name, 'it contains characters this tool cannot write (only Latin text is supported).');
+        field.setText((val as string) === '' ? undefined : (val as string));
+      } else if (field instanceof PDFCheckBox) {
+        if (typeof val !== 'boolean') fail(name, 'expects checked or unchecked.');
+        if (val) field.check(); else field.uncheck();
+      } else if (field instanceof PDFRadioGroup) {
+        if (typeof val !== 'string') fail(name, 'expects one of its options.');
+        if (val === '') field.clear(); else if (!field.getOptions().includes(val as string)) fail(name, `"${val}" is not one of: ${field.getOptions().join(', ')}.`); else field.select(val as string);
+      } else if (field instanceof PDFDropdown || field instanceof PDFOptionList) {
+        const sel = typeof val === 'string' ? (val === '' ? [] : [val]) : Array.isArray(val) ? val : fail(name, 'expects one of its options.');
+        const opts = field.getOptions();
+        const editable = field instanceof PDFDropdown && field.isEditable();
+        for (const s of sel) if (editable && !writable(s)) fail(name, 'it contains characters this tool cannot write (only Latin text is supported).'); else if (!editable && !opts.includes(s)) fail(name, `"${s}" is not one of: ${opts.join(', ')}.`);
+        if (sel.length > 1 && !(field instanceof PDFOptionList && field.isMultiselect())) fail(name, 'accepts only one choice.');
+        if (sel.length === 0) field.clear(); else field.select(sel.length === 1 && !(field instanceof PDFOptionList) ? sel[0]! : sel as string[]);
+      } else {
+        fail(name, `${kindOf(field)} fields cannot be filled.`);
+      }
+    } catch (e) {
+      if (e instanceof ToolError) throw e;
+      const m = (e as Error).message ?? '';
+      if (/WinAnsi|cannot encode|encode/i.test(m)) fail(name, 'it contains characters this tool cannot write (only Latin text is supported).');
+      if (/max.?length|exceed/i.test(m)) fail(name, 'the text is longer than the field allows.');
+      fail(name, 'could not be filled in.');
+    }
+    filled++;
+  }
+  try { form.updateFieldAppearances(); } catch { throw new ToolError('invalid_options', 'Some text contains characters this tool cannot write (only Latin text is supported).'); }
+  if (o.flatten) form.flatten();
+  const warnings = o.flatten ? ['The answers were made permanent and the fields removed.'] : ['The form stays editable. Some viewers show filled fields only after you click into them; flatten for a fixed result.'];
+  return savePdf(ctx, doc, `${baseName(f.name)}-filled.pdf`, warnings, { filled, fields: fields.length });
+};
+
 // ------------------------------------------------------------ compare
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const MAX_LINES = 20000;
@@ -262,5 +322,5 @@ const repair: Processor = async (ctx) => {
 export const TOOLS2: Partial<Record<ToolId, Processor>> = {
   'office-to-pdf': officeToPdf, protect, unlock,
   'pdf-to-text': pdfToText, 'pdf-to-html': pdfToHtml, 'extract-images': extractImages,
-  crop, resize, 'add-blank-pages': addBlankPages, flatten, compare, repair,
+  crop, resize, 'add-blank-pages': addBlankPages, flatten, 'fill-form': fillForm, compare, repair,
 };
