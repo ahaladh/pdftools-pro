@@ -62,9 +62,17 @@
   - *Recovery codes:* 10 random codes (~49 bits each), stored only as hashes, shown once, single-use; regenerating invalidates the old set.
   - *Secrets at rest:* AES-256-GCM, key derived (HKDF) from `TWO_FACTOR_KEY`, or from `JWT_ACCESS_SECRET` if unset. **Set `TWO_FACTOR_KEY` in production:** otherwise rotating the JWT secret makes every authenticator secret undecryptable and locks all 2FA users out. There is no key-rotation tool yet.
   - Turning 2FA on or off, and regenerating recovery codes, re-ask for the password (and a code where it matters) and sign every other device out.
+- **Security keys (WebAuthn).** A key is a second factor, checked after the password where an authenticator code would be; it never replaces the password. We store only the public key, a signature counter and a name. Adding a key re-asks for the password; **removing one needs the password and a recovery or authenticator code** (a key cannot vouch for its own removal). The first factor on an account issues recovery codes and signs other sessions out, as the authenticator app does.
+  - *Challenges:* random, bound to the account and to the ceremony (registration vs sign-in), valid 5 minutes, and consumed by an atomic database update, so a captured response replays to nothing and two parallel uses let exactly one in.
+  - *Binding:* the verifier pins the origin(s) and RP ID from `PUBLIC_URL` (`WEBAUTHN_RP_ID` / `WEBAUTHN_ORIGINS` override); a response made for another site is refused, which is the property that defeats phishing relays.
+  - *Clones:* if the stored counter and the new one are not both zero, the new one must be higher, otherwise the sign-in is refused and counted as a failure. Many platform passkeys always report 0, for which this check cannot work.
+  - *Brute force:* wrong keys count toward the same 5-strike lockout as wrong passwords and codes.
+  - *Not verified:* attestation (we accept any authenticator and do not restrict makes or models) and user verification (PIN/biometric is requested when the key can do it but not required).
+  - *Operational:* the RP ID is baked into every credential. **Changing the site's domain makes all registered keys unusable**; users then fall back to recovery codes. `doctor` checks that the origin is https (localhost excepted) and that the RP ID matches the host.
+  - An administrator 2FA reset also removes all security keys.
 - **Devices.** Users can see where they are signed in (browser and OS from the user-agent; no IP address is stored) and sign devices out remotely, individually or all but the current one. The device list never exposes token material.
 - **Admin reset.** For a user who lost both phone and recovery codes, an administrator can turn off their 2FA. It signs them out everywhere and is written to the audit log with the acting admin. **Verify the person's identity first**: this is the account-recovery path an attacker would target, so the UI asks for confirmation.
-- **Not done:** hardware keys / WebAuthn, SMS codes (deliberately omitted: SIM-swap risk), trusted-device "remember me", forcing 2FA for admins, and breach-password checks. 
+- **Not done:** passwordless sign-in with passkeys, SMS codes (deliberately omitted: SIM-swap risk), trusted-device "remember me", forcing 2FA for admins, and breach-password checks. 
 
 ## Phase 10 additions (teams and shared billing)
 

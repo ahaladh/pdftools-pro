@@ -112,6 +112,8 @@ Alert: `PdfToolsLoginAttack`. Accounts lock for 15 minutes after 5 failures and 
 
 They have lost their phone **and** their recovery codes. First make sure the request is genuine: this is the path an attacker would use, so confirm identity through something other than the account's own email if at all possible (a known contact, a support ticket history, payment details). Then admin → Users → find them → **Reset** in the *2-step* column. It turns 2FA off, signs them out everywhere and is recorded in the audit log (`auth.2fa_reset_by_admin`, with your user id). Tell them to turn it on again and save new recovery codes.
 
+If **security keys** stop working for everyone at once after a domain or proxy change, the RP ID or origin no longer matches what the keys were registered under (`doctor` flags a mismatch). Restore the old `PUBLIC_URL`/`WEBAUTHN_RP_ID`, or have users sign in with a recovery code and register their keys again. A single user who lost their key and their recovery codes needs the admin 2FA reset, which also removes their keys.
+
 If **everyone** with 2FA is suddenly unable to sign in with a valid code, the encryption key probably changed: `TWO_FACTOR_KEY` (or `JWT_ACCESS_SECRET` if that is what you rely on) no longer matches what the secrets were sealed with. Restore the old value. There is no re-encryption tool yet, so do not rotate the key without one.
 
 ### Team questions

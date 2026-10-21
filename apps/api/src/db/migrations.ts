@@ -38,6 +38,11 @@ export const MIGRATIONS: Migration[] = [
     description: 'Create the team collections\' indexes (one team per person, unique invitations)',
     up: async () => { for (const m of [TeamModel, MemberModel, InviteModel]) await m.createIndexes(); },
   },
+  {
+    id: '0005-security-key-index',
+    description: 'Create the unique index on security-key credential ids',
+    up: async () => { await UserModel.createIndexes(); },
+  },
 ];
 
 export class SchemaTooNewError extends Error {

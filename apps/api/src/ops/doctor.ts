@@ -7,6 +7,7 @@ import { zipSync, strToU8 } from 'fflate';
 import { Redis } from 'ioredis';
 import mongoose from 'mongoose';
 import { processToolIsolated, engineEnv } from '@pdftools/pdf-core';
+import { webauthnConfig, webauthnProblems } from '../modules/auth/webauthn-config.js';
 import type { Env } from '../config/env.js';
 import { connectDb, disconnectDb } from '../db/models.js';
 import { migrationStatus } from '../db/migrations.js';
@@ -41,6 +42,10 @@ export function checkConfig(env: Env): DoctorCheck[] {
   if (env.MONGODB_URI) {
     add('email delivery', env.SMTP_URL ? 'pass' : 'warn', env.SMTP_URL ? 'SMTP configured' : 'SMTP_URL not set: password-reset and email-confirmation messages cannot be delivered');
     add('two-factor key', env.TWO_FACTOR_KEY ? 'pass' : prod ? 'warn' : 'pass', env.TWO_FACTOR_KEY ? 'TWO_FACTOR_KEY set' : 'TWO_FACTOR_KEY not set: authenticator secrets are encrypted with JWT_ACCESS_SECRET, so rotating that secret would lock every 2FA user out. Set a separate TWO_FACTOR_KEY (32+ chars)');
+    try {
+      const wa = webauthnConfig(env), problems = webauthnProblems(wa);
+      add('security keys (WebAuthn)', problems.length ? (prod ? 'fail' : 'warn') : 'pass', problems.length ? problems.join('; ') : `RP ID ${wa.rpID}, origins ${wa.origins.join(', ')} (changing the RP ID later makes every registered key unusable)`);
+    } catch { add('security keys (WebAuthn)', 'fail', 'PUBLIC_URL is not a valid URL, so security keys cannot work'); }
     add('verified email for checkout', env.REQUIRE_VERIFIED_EMAIL ? 'pass' : prod ? 'warn' : 'pass', env.REQUIRE_VERIFIED_EMAIL ? 'required' : 'REQUIRE_VERIFIED_EMAIL is off: an unconfirmed address can start a paid checkout');
     add('bootstrap admin', env.ADMIN_PASSWORD ? 'warn' : 'pass', env.ADMIN_PASSWORD ? 'ADMIN_PASSWORD is still set: remove it after the first start' : 'not set');
   }

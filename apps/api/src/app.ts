@@ -29,6 +29,7 @@ import { defaultSettings } from './modules/settings/defaults.js';
 import { identity } from './modules/auth/middleware.js';
 import { authRoutes, setRefreshCookie } from './modules/auth/routes.js';
 import { AuthService } from './modules/auth/service.js';
+import { SecurityKeyService } from './modules/auth/webauthn.js';
 import { AuditService } from './modules/auth/audit.js';
 import { accountRoutes } from './modules/account/routes.js';
 import { BillingService, type StripeClient } from './modules/billing/service.js';
@@ -93,6 +94,7 @@ export async function createApp(deps: AppDeps = {}) {
       await usage.deleteKey(owner);
     },
   });
+  const securityKeys = new SecurityKeyService(env, auth, audit);
   if (accounts) await auth.seedAdmin();
 
   const app = express();
@@ -167,8 +169,8 @@ export async function createApp(deps: AppDeps = {}) {
 
   const disabled = (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(new HttpError(503, 'accounts_disabled', 'Accounts are not enabled on this server.'));
   if (accounts) {
-    app.use('/api/auth', limiter(600, 40), authRoutes(env, auth));
-    app.use('/api/me', accountRoutes({ auth, jobs, usage, settings, refreshCookie: (res, s) => setRefreshCookie(env, res, s) }));
+    app.use('/api/auth', limiter(600, 40), authRoutes(env, auth, securityKeys));
+    app.use('/api/me', accountRoutes({ auth, securityKeys, jobs, usage, settings, refreshCookie: (res, s) => setRefreshCookie(env, res, s) }));
     app.use('/api/billing', billingRoutes(billing, { requireVerifiedEmail: env.REQUIRE_VERIFIED_EMAIL, teamOf: (u) => teams.context(u) }));
     app.use('/api/teams', teamRoutes(teams));
     app.use('/api/admin', adminRoutes({ jobs, jobStore: jobStore as MongoJobStore, settings, audit, auth }));

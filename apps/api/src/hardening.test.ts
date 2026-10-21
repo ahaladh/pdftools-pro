@@ -182,7 +182,7 @@ describe('two-factor sign-in: logging in', () => {
     const u = await withTwoFactor();
     const r = await login(u.email);
     expect(r.status).toBe(200);
-    expect(r.body.data).toEqual({ twoFactorRequired: true, challenge: expect.any(String) });
+    expect(r.body.data).toEqual({ twoFactorRequired: true, challenge: expect.any(String), methods: { totp: true, securityKey: false } });
     expect(cookieOf(r, 'pt_refresh')).toBeUndefined();
     expect((await request(ctx.app).get('/api/me').set(bearer(r.body.data.challenge))).status).toBe(401);
     expect((await request(ctx.app).post('/api/auth/login').send({ email: u.email, password: 'nope nope nope' })).status).toBe(401);

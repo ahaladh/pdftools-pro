@@ -1,17 +1,18 @@
 import { Router, type Response } from 'express';
-import { forgotSchema, loginSchema, registerSchema, resetSchema, twoFactorLoginSchema, verifyEmailSchema } from '@pdftools/shared';
+import { forgotSchema, loginSchema, registerSchema, resetSchema, securityKeyLoginOptionsSchema, securityKeyLoginSchema, twoFactorLoginSchema, verifyEmailSchema } from '@pdftools/shared';
 import type { Env } from '../../config/env.js';
 import { ok, wrap } from '../../middleware/common.js';
 import { HttpError } from '../../utils/errors.js';
 import { requireCsrfHeader, requireUser } from './middleware.js';
 import type { AuthService, Session } from './service.js';
+import type { SecurityKeyService } from './webauthn.js';
 
 const REFRESH_COOKIE = 'pt_refresh';
 
 export const setRefreshCookie = (env: Env, res: Response, s: Session) =>
   res.cookie(REFRESH_COOKIE, s.refresh.token, { httpOnly: true, sameSite: 'strict', secure: env.NODE_ENV === 'production', expires: s.refresh.expires, path: '/api/auth' });
 
-export function authRoutes(env: Env, auth: AuthService) {
+export function authRoutes(env: Env, auth: AuthService, keys: SecurityKeyService) {
   const r = Router();
   const respond = (res: Response, s: Session, status = 200) => {
     setRefreshCookie(env, res, s);
@@ -26,6 +27,10 @@ export function authRoutes(env: Env, auth: AuthService) {
     respond(res, s);
   }));
   r.post('/login/2fa', wrap(async (req, res) => { const b = twoFactorLoginSchema.parse(req.body); respond(res, await auth.completeTwoFactorLogin(req, b.challenge, b.code)); }));
+
+  // Second step with a security key: options, then the signed response. Both need the challenge issued after the password.
+  r.post('/login/2fa/key/options', wrap(async (req, res) => ok(res, await keys.loginOptions(securityKeyLoginOptionsSchema.parse(req.body).challenge))));
+  r.post('/login/2fa/key', wrap(async (req, res) => { const b = securityKeyLoginSchema.parse(req.body); respond(res, await keys.login(req, b.challenge, b.response as never)); }));
 
   r.post('/verify-email', wrap(async (req, res) => { await auth.verifyEmail(req, verifyEmailSchema.parse(req.body).token); ok(res, { verified: true }); }));
   r.post('/resend-verification', requireUser, wrap(async (req, res) => { await auth.resendVerification(req, req.user); ok(res, { sent: true }); }));

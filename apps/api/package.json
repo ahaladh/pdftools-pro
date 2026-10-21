@@ -18,6 +18,7 @@
   "dependencies": {
     "@pdftools/pdf-core": "*",
     "@pdftools/shared": "*",
+    "@simplewebauthn/server": "^14.0.3",
     "bullmq": "^5.34.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",

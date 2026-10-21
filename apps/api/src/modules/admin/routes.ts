@@ -8,7 +8,7 @@ import { HttpError } from '../../utils/errors.js';
 import type { AuditService } from '../auth/audit.js';
 import { requireAdmin } from '../auth/middleware.js';
 import type { AuthService } from '../auth/service.js';
-import { userView } from '../auth/service.js';
+import { secondFactorOn, userView } from '../auth/service.js';
 import type { JobService } from '../jobs/service.js';
 import type { MongoJobStore } from '../jobs/mongo-store.js';
 import type { SettingsService } from '../settings/service.js';
@@ -52,7 +52,7 @@ export function adminRoutes(deps: { jobs: JobService; jobStore: MongoJobStore; s
     if (!/^[a-f0-9]{24}$/.test(id)) throw new HttpError(404, 'not_found', 'User not found');
     const user = await UserModel.findById(id);
     if (!user) throw new HttpError(404, 'not_found', 'User not found');
-    if (!user.twoFactor?.enabledAt) throw new HttpError(409, 'two_factor_off', 'This user has not turned on two-factor sign-in.');
+    if (!secondFactorOn(user)) throw new HttpError(409, 'two_factor_off', 'This user has not turned on two-factor sign-in.');
     await deps.auth.adminResetTwoFactor(req, user);
     ok(res, userView(user));
   }));

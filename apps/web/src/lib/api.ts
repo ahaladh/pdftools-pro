@@ -42,6 +42,9 @@ export const api = {
     /** Either a session, or - when the account has two-factor on - just a challenge to answer with a code. */
     login: (b: { email: string; password: string }) => call<AuthPayload | import('@pdftools/shared').TwoFactorChallenge>('/api/auth/login', json('POST', b)),
     loginTwoFactor: (b: { challenge: string; code: string }) => call<AuthPayload>('/api/auth/login/2fa', json('POST', b)),
+    /** Second step with a security key: the browser's options, then the signed answer. */
+    loginKeyOptions: (challenge: string) => call<unknown>('/api/auth/login/2fa/key/options', json('POST', { challenge })),
+    loginKey: (b: { challenge: string; response: unknown }) => call<AuthPayload>('/api/auth/login/2fa/key', json('POST', b)),
     verifyEmail: (token: string) => call<{ verified: boolean }>('/api/auth/verify-email', json('POST', { token })),
     resendVerification: () => call<{ sent: boolean }>('/api/auth/resend-verification', { method: 'POST' }),
     sessions: () => call<import('@pdftools/shared').SessionInfo[]>('/api/auth/sessions'),
@@ -60,6 +63,10 @@ export const api = {
     twoFactorEnable: (code: string) => call<AuthPayload & { recoveryCodes: string[] }>('/api/me/2fa/enable', json('POST', { code })),
     twoFactorDisable: (password: string, code: string) => call<AuthPayload>('/api/me/2fa/disable', json('POST', { password, code })),
     recoveryCodes: (password: string, code: string) => call<{ recoveryCodes: string[] }>('/api/me/2fa/recovery-codes', json('POST', { password, code })),
+    securityKeys: () => call<{ keys: import('@pdftools/shared').SecurityKeyView[] }>('/api/me/security-keys'),
+    securityKeyOptions: (password: string) => call<unknown>('/api/me/security-keys/options', json('POST', { password })),
+    securityKeyAdd: (response: unknown, name: string) => call<{ keys: import('@pdftools/shared').SecurityKeyView[]; recoveryCodes?: string[] } & Partial<AuthPayload>>('/api/me/security-keys', json('POST', { response, name })),
+    securityKeyRemove: (id: string, password: string, code: string) => call<AuthPayload & { keys: import('@pdftools/shared').SecurityKeyView[] }>(`/api/me/security-keys/${encodeURIComponent(id)}`, json('DELETE', { password, code })),
     usage: () => call<UsageView>('/api/me/usage'),
     jobs: () => call<JobView[]>('/api/me/jobs'),
     remove: (password: string) => call<{ deleted: boolean }>('/api/me', json('DELETE', { password })),

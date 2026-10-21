@@ -17,13 +17,18 @@ import { hashRecovery, looksLikeRecovery, newRecoveryCodes, newTotpSecret, openS
 export type UserDoc = any;
 const MAX_FAILED = 5, LOCK_MS = 15 * 60_000, RESET_TTL_MS = 60 * 60_000, RESEND_COOLDOWN_MS = 60_000, PENDING_2FA_MS = 15 * 60_000;
 
+/** Second-factor state. An account is protected by an authenticator app, by security keys, or by both; recovery codes back either. */
+export const hasTotp = (u: UserDoc) => !!u.twoFactor?.enabledAt;
+export const hasKeys = (u: UserDoc) => (u.securityKeys?.length ?? 0) > 0;
+export const secondFactorOn = (u: UserDoc) => hasTotp(u) || hasKeys(u);
+
 export interface Session { user: UserView; accessToken: string; expiresIn: number; refresh: { token: string; expires: Date } }
 
 export function userView(u: UserDoc, extra?: { effectivePlan: PlanId; team?: { id: string; name: string; role: import('@pdftools/shared').TeamRole; plan: PlanId } }): UserView {
   const b = u.billing;
   return {
     id: String(u._id), email: u.email, name: u.name ?? '', role: u.role, plan: u.plan as PlanId, createdAt: new Date(u.createdAt).toISOString(),
-    emailVerified: !!u.emailVerifiedAt, twoFactorEnabled: !!u.twoFactor?.enabledAt,
+    emailVerified: !!u.emailVerifiedAt, twoFactorEnabled: secondFactorOn(u), totpEnabled: hasTotp(u), securityKeys: u.securityKeys?.length ?? 0,
     effectivePlan: extra?.effectivePlan ?? (u.plan as PlanId), ...(extra?.team ? { team: extra.team } : {}),
     ...(b?.subscriptionId ? { subscription: { status: b.status, plan: b.plan, currentPeriodEnd: b.currentPeriodEnd?.toISOString(), cancelAtPeriodEnd: b.cancelAtPeriodEnd } } : {}),
   };
@@ -65,10 +70,10 @@ export class AuthService {
       throw new HttpError(401, 'invalid_credentials', 'Incorrect email or password.');
     }
     if (user.status !== 'active') throw new HttpError(403, 'account_disabled', 'This account has been disabled.');
-    if (user.twoFactor?.enabledAt) {
+    if (secondFactorOn(user)) {
       // Password is right, but no session is issued until the second factor is too. Failed-login counting is NOT reset yet.
       await this.audit.record(`u:${user._id}`, 'auth.login_password_ok_2fa_pending', { req });
-      return { twoFactorRequired: true, challenge: await signMfaChallenge(this.env.JWT_ACCESS_SECRET, String(user._id)) };
+      return { twoFactorRequired: true, challenge: await signMfaChallenge(this.env.JWT_ACCESS_SECRET, String(user._id)), methods: { totp: hasTotp(user), securityKey: hasKeys(user) } };
     }
     user.failedLogins = 0; user.lockedUntil = undefined; user.lastLoginAt = new Date();
     await user.save();
@@ -79,18 +84,31 @@ export class AuthService {
   // ------------------------------------------------------------------ two-factor
   private key() { return this.env.TWO_FACTOR_KEY ?? this.env.JWT_ACCESS_SECRET; }
 
-  /**
-   * Check a TOTP or recovery code for a user with 2FA on. Wrong codes count toward the same lockout as wrong passwords,
-   * a TOTP step cannot be reused, and a recovery code is consumed atomically (two parallel requests cannot both use it).
-   */
-  private async checkSecondFactor(user: UserDoc, code: string, req: Request): Promise<void> {
+  /** Refuse while the account is locked (too many wrong passwords or second factors). */
+  assertNotLocked(user: UserDoc) {
     if (user.lockedUntil && user.lockedUntil.getTime() > Date.now()) throw new HttpError(429, 'account_locked', 'Too many failed attempts. Try again in a few minutes.');
+  }
+
+  /** A wrong second factor of any kind counts toward the same lockout as a wrong password. */
+  async recordSecondFactorFailure(user: UserDoc, req: Request, what: string) {
+    const failed = (user.twoFactor?.failed ?? 0) + 1;
+    const lock = failed >= MAX_FAILED;
+    await UserModel.updateOne({ _id: user._id }, lock ? { $set: { 'twoFactor.failed': 0, lockedUntil: new Date(Date.now() + LOCK_MS) } } : { $set: { 'twoFactor.failed': failed } });
+    await this.audit.record(`u:${user._id}`, 'auth.2fa_failed', { req, meta: { what } });
+  }
+
+  /**
+   * Check a TOTP or recovery code for a user with a second factor on. Wrong codes count toward the same lockout as wrong
+   * passwords, a TOTP step cannot be reused, and a recovery code is consumed atomically (two parallel requests cannot both use it).
+   */
+  async checkSecondFactor(user: UserDoc, code: string, req: Request): Promise<void> {
+    this.assertNotLocked(user);
     let ok = false;
     if (looksLikeRecovery(code)) {
       const r = await UserModel.updateOne({ _id: user._id, 'twoFactor.recoveryHashes': hashRecovery(code) }, { $pull: { 'twoFactor.recoveryHashes': hashRecovery(code) } });
       ok = r.modifiedCount === 1;
       if (ok) await this.audit.record(`u:${user._id}`, 'auth.recovery_code_used', { req });
-    } else {
+    } else if (hasTotp(user)) {
       const step = verifyTotp(openSecret(this.key(), user.twoFactor.secretEnc), code, Date.now(), { lastStep: user.twoFactor.lastStep });
       if (step !== null) {
         const r = await UserModel.updateOne({ _id: user._id, $or: [{ 'twoFactor.lastStep': { $lt: step } }, { 'twoFactor.lastStep': { $exists: false } }] }, { $set: { 'twoFactor.lastStep': step } });
@@ -98,33 +116,47 @@ export class AuthService {
       }
     }
     if (ok) { await UserModel.updateOne({ _id: user._id }, { $set: { 'twoFactor.failed': 0 } }); return; }
-    const failed = (user.twoFactor.failed ?? 0) + 1;
-    const lock = failed >= MAX_FAILED;
-    await UserModel.updateOne({ _id: user._id }, lock ? { $set: { 'twoFactor.failed': 0, lockedUntil: new Date(Date.now() + LOCK_MS) } } : { $set: { 'twoFactor.failed': failed } });
-    await this.audit.record(`u:${user._id}`, 'auth.2fa_failed', { req });
-    throw new HttpError(401, 'invalid_code', 'That code is not valid. Check your authenticator app, or use a recovery code.');
+    await this.recordSecondFactorFailure(user, req, 'code');
+    throw new HttpError(401, 'invalid_code', hasTotp(user) ? 'That code is not valid. Check your authenticator app, or use a recovery code.' : 'That is not a valid recovery code.');
   }
 
-  async completeTwoFactorLogin(req: Request, challenge: string, code: string): Promise<Session> {
+  /** The account a sign-in challenge (issued after a correct password) belongs to, or an error telling the user to start over. */
+  async pendingUser(challenge: string): Promise<UserDoc> {
     const id = await verifyMfaChallenge(this.env.JWT_ACCESS_SECRET, challenge);
     const user = id ? await UserModel.findById(id).catch(() => null) : null;
-    if (!user || user.status !== 'active' || !user.twoFactor?.enabledAt) throw new HttpError(401, 'invalid_challenge', 'This sign-in has expired. Please start again.');
-    await this.checkSecondFactor(user, code, req);
+    if (!user || user.status !== 'active' || !secondFactorOn(user)) throw new HttpError(401, 'invalid_challenge', 'This sign-in has expired. Please start again.');
+    return user;
+  }
+
+  /** The second factor has been proven: clear the lockout counters and open the session. */
+  async finishLogin(req: Request, user: UserDoc, via: string): Promise<Session> {
     const fresh = await UserModel.findById(user._id);
     fresh.failedLogins = 0; fresh.lockedUntil = undefined; fresh.lastLoginAt = new Date();
     await fresh.save();
-    await this.audit.record(`u:${user._id}`, 'auth.login', { req, meta: { twoFactor: true } });
+    await this.audit.record(`u:${user._id}`, 'auth.login', { req, meta: { twoFactor: true, via } });
     return this.issue(fresh, req);
   }
 
-  private async requirePassword(user: UserDoc, password: string) {
+  async completeTwoFactorLogin(req: Request, challenge: string, code: string): Promise<Session> {
+    const user = await this.pendingUser(challenge);
+    await this.checkSecondFactor(user, code, req);
+    return this.finishLogin(req, user, looksLikeRecovery(code) ? 'recovery' : 'totp');
+  }
+
+  /** Revoke every session (used when the set of second factors changes) and open a fresh one for this device. */
+  async rotateSessions(req: Request, user: UserDoc): Promise<Session> {
+    await SessionModel.updateMany({ userId: user._id, revokedAt: { $exists: false } }, { revokedAt: new Date() });
+    return this.issue(user, req);
+  }
+
+  async requirePassword(user: UserDoc, password: string) {
     if (!(await verifyPassword(password, user.passwordHash))) throw new HttpError(403, 'invalid_credentials', 'Password is incorrect.');
   }
 
   /** Step 1: generate a secret and show it once. Nothing is enforced until the user proves their app works (step 2). */
   async beginTwoFactor(user: UserDoc, password: string) {
     await this.requirePassword(user, password);
-    if (user.twoFactor?.enabledAt) throw new HttpError(409, 'two_factor_enabled', 'Two-factor sign-in is already on.');
+    if (hasTotp(user)) throw new HttpError(409, 'two_factor_enabled', 'An authenticator app is already set up.');
     const secret = newTotpSecret();
     user.twoFactorPending = { secretEnc: sealSecret(this.key(), secret), createdAt: new Date() };
     await user.save();
@@ -149,21 +181,22 @@ export class AuthService {
     return { recoveryCodes: codes, session: await this.issue(user, req) };
   }
 
+  /** Turns off the authenticator app. If security keys remain the account stays protected by them; otherwise two-step sign-in is off. */
   async disableTwoFactor(req: Request, user: UserDoc, password: string, code: string): Promise<Session> {
     await this.requirePassword(user, password);
-    if (!user.twoFactor?.enabledAt) throw new HttpError(409, 'two_factor_off', 'Two-factor sign-in is not on.');
+    if (!hasTotp(user)) throw new HttpError(409, 'two_factor_off', 'No authenticator app is set up.');
     await this.checkSecondFactor(user, code, req);
     const fresh = await UserModel.findById(user._id);
-    fresh.twoFactor = undefined; fresh.twoFactorPending = undefined;
+    fresh.twoFactor = hasKeys(fresh) ? { recoveryHashes: fresh.twoFactor.recoveryHashes ?? [], failed: 0 } : undefined;
+    fresh.twoFactorPending = undefined;
     await fresh.save();
-    await SessionModel.updateMany({ userId: user._id, revokedAt: { $exists: false } }, { revokedAt: new Date() });
     await this.audit.record(`u:${user._id}`, 'auth.2fa_disabled', { req });
-    return this.issue(fresh, req);
+    return this.rotateSessions(req, fresh);
   }
 
   async regenerateRecoveryCodes(req: Request, user: UserDoc, password: string, code: string): Promise<string[]> {
     await this.requirePassword(user, password);
-    if (!user.twoFactor?.enabledAt) throw new HttpError(409, 'two_factor_off', 'Two-factor sign-in is not on.');
+    if (!secondFactorOn(user)) throw new HttpError(409, 'two_factor_off', 'Two-factor sign-in is not on.');
     await this.checkSecondFactor(user, code, req);
     const codes = newRecoveryCodes();
     await UserModel.updateOne({ _id: user._id }, { $set: { 'twoFactor.recoveryHashes': codes.map(hashRecovery) } });
@@ -173,7 +206,7 @@ export class AuthService {
 
   /** Support path for someone who lost both their phone and their recovery codes. The admin action is audited. */
   async adminResetTwoFactor(req: Request, target: UserDoc) {
-    target.twoFactor = undefined; target.twoFactorPending = undefined;
+    target.twoFactor = undefined; target.twoFactorPending = undefined; target.securityKeys = []; target.webauthnChallenge = undefined;
     await target.save();
     await SessionModel.updateMany({ userId: target._id, revokedAt: { $exists: false } }, { revokedAt: new Date() });
     await this.audit.record(`u:${target._id}`, 'auth.2fa_reset_by_admin', { req, meta: { by: String(req.user?._id) } });

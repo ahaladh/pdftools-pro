@@ -15,7 +15,7 @@ import { setSessionHint, setToken } from '@/lib/session';
 import { useSeo } from '@/hooks/useSeo';
 import { useAuth } from '@/stores/auth';
 import { getTool } from '@pdftools/shared';
-import { DevicesCard, EmailStatus, TwoFactorCard } from '@/pages/account/Security';
+import { DevicesCard, EmailStatus, SecurityKeysCard, TwoFactorCard } from '@/pages/account/Security';
 import { TeamCard } from '@/pages/account/Team';
 
 const when = (iso: string) => new Date(iso).toLocaleString();
@@ -117,6 +117,7 @@ export default function Account() {
 
       <section className="grid gap-6 md:grid-cols-2" aria-label="Sign-in security">
         <TwoFactorCard />
+        <SecurityKeysCard />
         <DevicesCard />
       </section>
 

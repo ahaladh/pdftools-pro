@@ -46,7 +46,12 @@ export interface UserView {
   createdAt: string;
   /** The user has proven control of the email address. */
   emailVerified: boolean;
+  /** Any second factor is on: an authenticator app, a security key, or both. */
   twoFactorEnabled: boolean;
+  /** An authenticator app (TOTP) is set up. */
+  totpEnabled: boolean;
+  /** Number of registered security keys. */
+  securityKeys: number;
   /** The plan that actually applies: the better of `plan` (their own) and their team's. */
   effectivePlan: PlanId;
   team?: { id: string; name: string; role: TeamRole; plan: PlanId };
@@ -70,7 +75,10 @@ export interface TeamView {
 }
 
 /** Result of a password check for an account with two-factor sign-in on: no session yet, just a short-lived challenge. */
-export interface TwoFactorChallenge { twoFactorRequired: true; challenge: string }
+export interface TwoFactorChallenge { twoFactorRequired: true; challenge: string; /** Which second factors this account can use now (recovery codes always work). */ methods: { totp: boolean; securityKey: boolean } }
+
+/** A registered security key / passkey used as a second factor. The id is the (public) credential id. */
+export interface SecurityKeyView { id: string; name: string; createdAt: string; lastUsedAt?: string; /** multiDevice = a synced passkey rather than a key that never leaves the device. */ deviceType: 'singleDevice' | 'multiDevice'; backedUp: boolean }
 
 export interface SessionInfo { id: string; device: string; since: string; lastUsed: string; current: boolean }
 
@@ -97,6 +105,14 @@ export const twoFactorLoginSchema = z.object({ challenge: z.string().min(20).max
 export const reauthSchema = z.object({ password: z.string().min(1).max(128) });
 export const twoFactorEnableSchema = z.object({ code: secondFactor });
 export const twoFactorConfirmSchema = z.object({ password: z.string().min(1).max(128), code: secondFactor });
+/** A WebAuthn credential as produced by the browser (validated in depth by the verifier; this only bounds its shape and size). */
+const webauthnResponse = z.object({
+  id: z.string().min(1).max(1400), rawId: z.string().min(1).max(1400), type: z.literal('public-key'),
+  response: z.record(z.unknown()), clientExtensionResults: z.record(z.unknown()).optional(), authenticatorAttachment: z.string().max(40).optional(),
+}).passthrough();
+export const securityKeyRegisterSchema = z.object({ response: webauthnResponse, name: z.string().trim().min(1, 'Give the key a name').max(40) });
+export const securityKeyLoginOptionsSchema = z.object({ challenge: z.string().min(20).max(2000) });
+export const securityKeyLoginSchema = z.object({ challenge: z.string().min(20).max(2000), response: webauthnResponse });
 export const createTeamSchema = z.object({ name: z.string().trim().min(2, 'Use at least 2 characters').max(60) });
 export const renameTeamSchema = createTeamSchema;
 export const inviteSchema = z.object({ email: z.string().trim().toLowerCase().email().max(254), role: z.enum(['admin', 'member']).default('member') });

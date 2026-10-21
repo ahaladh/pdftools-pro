@@ -74,6 +74,12 @@ const schema = z.object({
   REFRESH_TOKEN_TTL_DAYS: num(30),
   /** Public origin of the site; used in emails and billing redirects. */
   PUBLIC_URL: z.string().default('http://localhost:5173'),
+  /**
+   * WebAuthn relying party (security keys). Defaults: the hostname and origin of PUBLIC_URL. Change them only if the site is
+   * served from several origins; a key registered under one RP ID never works under another.
+   */
+  WEBAUTHN_RP_ID: z.string().optional(),
+  WEBAUTHN_ORIGINS: z.string().optional(),
   SMTP_URL: z.string().optional(),
   /** When on, an unverified email cannot start a paid checkout. Recommended in production. */
   REQUIRE_VERIFIED_EMAIL: bool(false),

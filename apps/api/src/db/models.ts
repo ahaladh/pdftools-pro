@@ -27,6 +27,23 @@ const userSchema = new Schema({
     failed: { type: Number, default: 0 },
   },
   twoFactorPending: { secretEnc: String, createdAt: Date },
+  /** Security keys (WebAuthn credentials) usable as a second factor. Only public keys are stored. */
+  securityKeys: {
+    type: [new Schema({
+      credentialId: { type: String, required: true },
+      publicKey: { type: Buffer, required: true },
+      counter: { type: Number, default: 0 },
+      transports: [String],
+      name: { type: String, required: true, maxlength: 40 },
+      deviceType: { type: String, enum: ['singleDevice', 'multiDevice'], default: 'singleDevice' },
+      backedUp: { type: Boolean, default: false },
+      createdAt: { type: Date, default: Date.now },
+      lastUsedAt: Date,
+    }, { _id: false })],
+    default: [],
+  },
+  /** The one outstanding WebAuthn challenge (registration or sign-in): single-use and short-lived. */
+  webauthnChallenge: { value: String, kind: { type: String, enum: ['register', 'login'] }, expiresAt: Date },
   billing: {
     customerId: String,
     subscriptionId: String,
@@ -127,6 +144,8 @@ const billingEventSchema = new Schema({ _id: String, type: String, at: { type: D
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const model = (name: string, schema: Schema): Model<any> => (mongoose.models[name] as Model<any> | undefined) ?? mongoose.model(name, schema);
+/** A credential id belongs to exactly one account (the backstop for the check at registration). */
+userSchema.index({ 'securityKeys.credentialId': 1 }, { unique: true, partialFilterExpression: { 'securityKeys.credentialId': { $exists: true } } });
 export const UserModel = model('User', userSchema);
 export const SessionModel = model('Session', sessionSchema);
 export const JobModel = model('Job', jobSchema);

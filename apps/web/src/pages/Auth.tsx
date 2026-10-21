@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { KeyRound } from 'lucide-react';
 import { Link, useNavigate, useSearchParams, Navigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -12,6 +13,7 @@ import { api, ApiError } from '@/lib/api';
 import { useSeo } from '@/hooks/useSeo';
 import { useAuth } from '@/stores/auth';
 import { safeNext } from '@/lib/safeNext';
+import { keyErrorText } from '@/lib/webauthn';
 
 function Shell({ title, subtitle, children, footer }: { title: string; subtitle?: string; children: ReactNode; footer?: ReactNode }) {
   return (
@@ -42,31 +44,52 @@ export function SignIn() {
   const [serverError, fail, clear] = useServerError();
   const f = useForm<z.input<typeof loginSchema>>({ resolver: zodResolver(loginSchema) });
   /** Set once the password was accepted for an account with two-factor sign-in on. */
-  const [challenge, setChallenge] = useState<string | null>(null);
+  const [pending, setPending] = useState<{ token: string; methods: { totp: boolean; securityKey: boolean } } | null>(null);
   const [useRecovery, setUseRecovery] = useState(false);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
+  const completeWithKey = useAuth((s) => s.completeWithKey);
+  const [keyBusy, setKeyBusy] = useState(false);
   if (status === 'authenticated') return <Navigate to={safeNext(params.get('next'))} replace />;
 
-  if (challenge) {
+  if (pending) {
+    const { methods } = pending;
+    // Without an authenticator app only a recovery code can be typed, so there is nothing to toggle.
+    const recovery = useRecovery || !methods.totp;
+    const subtitle = methods.securityKey ? 'Use your security key, or enter a code.' : recovery ? 'Enter one of your recovery codes.' : 'Enter the 6-digit code from your authenticator app.';
+    const useKey = async () => {
+      clear(); setKeyBusy(true);
+      try { await completeWithKey(pending.token); nav(safeNext(params.get('next'))); }
+      catch (err) {
+        fail(err instanceof ApiError ? err : new Error(keyErrorText(err)));
+        if (err instanceof ApiError && err.code === 'invalid_challenge') { setPending(null); setCode(''); }
+      } finally { setKeyBusy(false); }
+    };
     return (
-      <Shell title="Two-step verification" subtitle={useRecovery ? 'Enter one of your recovery codes.' : 'Enter the 6-digit code from your authenticator app.'}
-        footer={<button type="button" className="text-brand-700 underline" onClick={() => { setChallenge(null); setCode(''); setUseRecovery(false); clear(); }}>Back to sign in</button>}>
+      <Shell title="Two-step verification" subtitle={subtitle}
+        footer={<button type="button" className="text-brand-700 underline" onClick={() => { setPending(null); setCode(''); setUseRecovery(false); clear(); }}>Back to sign in</button>}>
+        {methods.securityKey && (
+          <div className="mb-5 space-y-2">
+            <Button type="button" className="w-full" onClick={useKey} disabled={keyBusy || busy}><KeyRound className="h-4 w-4" />{keyBusy ? 'Waiting for your security key…' : 'Use security key'}</Button>
+            {keyBusy && <p role="status" className="text-center text-xs text-slate-600">Insert or touch your security key when your browser asks.</p>}
+            <p className="pt-1 text-center text-xs uppercase tracking-wider text-slate-500">or</p>
+          </div>
+        )}
         <form className="space-y-4" noValidate onSubmit={async (e) => {
           e.preventDefault(); clear(); setBusy(true);
-          try { await completeTwoFactor(challenge, code); nav(safeNext(params.get('next'))); }
+          try { await completeTwoFactor(pending.token, code); nav(safeNext(params.get('next'))); }
           catch (err) {
             fail(err);
             // An expired or invalid challenge cannot be retried: start over rather than leave the user stuck.
-            if (err instanceof ApiError && err.code === 'invalid_challenge') { setChallenge(null); setCode(''); }
+            if (err instanceof ApiError && err.code === 'invalid_challenge') { setPending(null); setCode(''); }
           } finally { setBusy(false); }
         }}>
-          <Field label={useRecovery ? 'Recovery code' : 'Authentication code'} hint={useRecovery ? 'Each recovery code works once.' : undefined}>
-            <TextInput value={code} onChange={(e) => setCode(e.target.value)} autoFocus autoComplete="one-time-code" inputMode={useRecovery ? 'text' : 'numeric'} maxLength={useRecovery ? 16 : 6} spellCheck={false} placeholder={useRecovery ? 'xxxxx-xxxxx' : '123456'} />
+          <Field label={recovery ? 'Recovery code' : 'Authentication code'} hint={recovery ? 'Each recovery code works once.' : undefined}>
+            <TextInput value={code} onChange={(e) => setCode(e.target.value)} autoFocus={!methods.securityKey} autoComplete="one-time-code" inputMode={recovery ? 'text' : 'numeric'} maxLength={recovery ? 16 : 6} spellCheck={false} placeholder={recovery ? 'xxxxx-xxxxx' : '123456'} />
           </Field>
           {serverError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{serverError}</p>}
-          <Button type="submit" className="w-full" disabled={busy || code.trim().length < 6}>{busy ? 'Verifying…' : 'Verify and sign in'}</Button>
-          <p className="text-center text-sm"><button type="button" className="text-slate-600 underline" onClick={() => { setUseRecovery((v) => !v); setCode(''); clear(); }}>{useRecovery ? 'Use my authenticator app instead' : 'Use a recovery code instead'}</button></p>
+          <Button type="submit" variant={methods.securityKey ? 'secondary' : 'primary'} className="w-full" disabled={busy || keyBusy || code.trim().length < 6}>{busy ? 'Verifying…' : 'Verify and sign in'}</Button>
+          {methods.totp && <p className="text-center text-sm"><button type="button" className="text-slate-600 underline" onClick={() => { setUseRecovery((v) => !v); setCode(''); clear(); }}>{useRecovery ? 'Use my authenticator app instead' : 'Use a recovery code instead'}</button></p>}
         </form>
       </Shell>
     );
@@ -74,7 +97,7 @@ export function SignIn() {
 
   return (
     <Shell title="Sign in" footer={<>No account? <Link className="text-brand-700 underline" to="/register">Create one</Link></>}>
-      <form className="space-y-4" noValidate onSubmit={f.handleSubmit(async (v) => { clear(); try { const r = await login(v.email, v.password); if (r) setChallenge(r.challenge); else nav(safeNext(params.get('next'))); } catch (e) { fail(e); } })}>
+      <form className="space-y-4" noValidate onSubmit={f.handleSubmit(async (v) => { clear(); try { const r = await login(v.email, v.password); if (r) setPending({ token: r.challenge, methods: r.methods }); else nav(safeNext(params.get('next'))); } catch (e) { fail(e); } })}>
         <Field label="Email"><TextInput type="email" autoComplete="email" {...f.register('email')} /><Err msg={f.formState.errors.email?.message} /></Field>
         <Field label="Password"><TextInput type="password" autoComplete="current-password" {...f.register('password')} /><Err msg={f.formState.errors.password?.message} /></Field>
         {serverError && <p role="alert" className="rounded-xl bg-red-50 p-3 text-sm text-red-700">{serverError}</p>}

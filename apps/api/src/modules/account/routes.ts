@@ -1,16 +1,17 @@
 import { Router } from 'express';
-import { changePasswordSchema, profileSchema, reauthSchema, twoFactorConfirmSchema, twoFactorEnableSchema, type UsageView } from '@pdftools/shared';
+import { changePasswordSchema, profileSchema, reauthSchema, securityKeyRegisterSchema, twoFactorConfirmSchema, twoFactorEnableSchema, type UsageView } from '@pdftools/shared';
 import { z } from 'zod';
 import { ok, wrap } from '../../middleware/common.js';
 import { requireUser } from '../auth/middleware.js';
 import { planInfo } from '../teams/plan.js';
 import { userView, type AuthService } from '../auth/service.js';
+import type { SecurityKeyService } from '../auth/webauthn.js';
 import type { JobService } from '../jobs/service.js';
 import type { SettingsService } from '../settings/service.js';
 import type { UsageStore } from '../usage/store.js';
 import { today } from '../usage/store.js';
 
-export function accountRoutes(deps: { auth: AuthService; jobs: JobService; usage: UsageStore; settings: SettingsService; refreshCookie: (res: import('express').Response, s: import('../auth/service.js').Session) => void }) {
+export function accountRoutes(deps: { auth: AuthService; securityKeys: SecurityKeyService; jobs: JobService; usage: UsageStore; settings: SettingsService; refreshCookie: (res: import('express').Response, s: import('../auth/service.js').Session) => void }) {
   const r = Router();
   r.use(requireUser);
 
@@ -46,6 +47,22 @@ export function accountRoutes(deps: { auth: AuthService; jobs: JobService; usage
   r.post('/2fa/recovery-codes', wrap(async (req, res) => {
     const b = twoFactorConfirmSchema.parse(req.body);
     ok(res, { recoveryCodes: await deps.auth.regenerateRecoveryCodes(req, req.user, b.password, b.code) });
+  }));
+
+  // Security keys (WebAuthn). Adding and removing re-ask for the password; removing also needs a second factor.
+  r.get('/security-keys', wrap(async (req, res) => ok(res, { keys: deps.securityKeys.list(req.user) })));
+  r.post('/security-keys/options', wrap(async (req, res) => ok(res, await deps.securityKeys.registrationOptions(req.user, reauthSchema.parse(req.body).password))));
+  r.post('/security-keys', wrap(async (req, res) => {
+    const b = securityKeyRegisterSchema.parse(req.body);
+    const { keys, recoveryCodes, session } = await deps.securityKeys.register(req, req.user, b.response as never, b.name);
+    if (session) deps.refreshCookie(res, session);
+    ok(res, { keys, ...(recoveryCodes ? { recoveryCodes } : {}), ...(session ? { user: session.user, accessToken: session.accessToken, expiresIn: session.expiresIn } : {}) }, 201);
+  }));
+  r.delete('/security-keys/:id', wrap(async (req, res) => {
+    const b = twoFactorConfirmSchema.parse(req.body);
+    const { keys, session } = await deps.securityKeys.remove(req, req.user, String(req.params.id).slice(0, 1400), b.password, b.code);
+    deps.refreshCookie(res, session);
+    ok(res, { keys, user: session.user, accessToken: session.accessToken, expiresIn: session.expiresIn });
   }));
 
   r.get('/usage', wrap(async (req, res) => {

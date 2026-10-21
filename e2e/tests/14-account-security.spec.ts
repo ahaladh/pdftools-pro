@@ -14,7 +14,7 @@ const axe = async (page: Page, label: string) => {
 async function enableTwoFactor(page: Page) {
   await page.goto('/account');
   await page.getByRole('button', { name: 'Set up' }).click();
-  await page.getByLabel('Your password, to set up two-step verification').fill(PW);
+  await page.getByLabel('Your password, to set up the authenticator app').fill(PW);
   await page.getByRole('button', { name: 'Continue' }).click();
   await expect(page.getByAltText('QR code for your authenticator app')).toBeVisible();
   const key = (await page.getByLabel('Setup key').innerText()).replace(/\s/g, '');
@@ -60,10 +60,10 @@ test.describe('two-step verification', () => {
     await register(page, email, PW);
     await page.goto('/account');
     await page.getByRole('button', { name: 'Set up' }).click();
-    await page.getByLabel('Your password, to set up two-step verification').fill('definitely-not-it');
+    await page.getByLabel('Your password, to set up the authenticator app').fill('definitely-not-it');
     await page.getByRole('button', { name: 'Continue' }).click();
     await expect(page.getByRole('alert')).toContainText(/password is incorrect/i);
-    await page.getByLabel('Your password, to set up two-step verification').fill(PW);
+    await page.getByLabel('Your password, to set up the authenticator app').fill(PW);
     await page.getByRole('button', { name: 'Continue' }).click();
     await expect(page.getByAltText('QR code for your authenticator app')).toBeVisible();
     await axe(page, 'two-factor setup');
@@ -80,7 +80,7 @@ test.describe('two-step verification', () => {
     expect(new Set(recovery).size).toBe(10);
     await axe(page, 'recovery codes');
     await page.getByRole('button', { name: 'I have saved them' }).click();
-    await expect(page.getByText('On. Signing in needs a code')).toBeVisible();
+    await expect(page.getByText('On. Signing in accepts a code')).toBeVisible();
 
     await signOut(page);
     // password alone no longer signs in
@@ -99,7 +99,7 @@ test.describe('two-step verification', () => {
     await page.getByLabel('Authentication code').fill(nextCode);
     await page.getByRole('button', { name: 'Verify and sign in' }).click();
     await expect(page).toHaveURL(/\/account$/);
-    await expect(page.getByText('On. Signing in needs a code')).toBeVisible();
+    await expect(page.getByText('On. Signing in accepts a code')).toBeVisible();
 
     // the same authenticator code cannot be used again
     await signOut(page);
@@ -136,7 +136,7 @@ test.describe('two-step verification', () => {
     await expect(page.getByRole('alert')).toContainText(/not valid/i);
     await page.getByLabel('Authenticator or recovery code').fill(authenticatorCode(key, 1));
     await page.getByRole('button', { name: 'Turn off' }).last().click();
-    await expect(page.getByText('Off. Add a second step')).toBeVisible();
+    await expect(page.getByText('Off. Use an app on your phone')).toBeVisible();
     await signOut(page);
     await login(page, email, PW);
     await expect(page).toHaveURL(/\/account$/); // no second step
@@ -205,7 +205,7 @@ test.describe('support: locked out of two-step verification', () => {
 
     await login(up, email, PW);
     await expect(up).toHaveURL(/\/account$/); // password alone works again
-    await expect(up.getByText('Off. Add a second step')).toBeVisible();
+    await expect(up.getByText('Off. Use an app on your phone')).toBeVisible();
     await userCtx.close();
   });
 });

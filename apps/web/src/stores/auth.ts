@@ -10,8 +10,10 @@ interface AuthState {
   init: () => Promise<void>;
   accept: (p: AuthPayload) => void;
   /** Resolves to a challenge when the account needs a second factor, otherwise signs in and resolves to null. */
-  login: (email: string, password: string) => Promise<{ challenge: string } | null>;
+  login: (email: string, password: string) => Promise<{ challenge: string; methods: { totp: boolean; securityKey: boolean } } | null>;
   completeTwoFactor: (challenge: string, code: string) => Promise<void>;
+  /** Answer the second step with a security key (the browser prompts the user to touch it). */
+  completeWithKey: (challenge: string) => Promise<void>;
   register: (email: string, password: string, name: string) => Promise<void>;
   logout: () => Promise<void>;
   setUser: (u: UserView) => void;
@@ -37,11 +39,16 @@ export const useAuth = create<AuthState>((set, get) => ({
   accept(p) { setToken(p.accessToken); setSessionHint(true); set({ status: 'authenticated', user: p.user, leftOnPurpose: false }); },
   async login(email, password) {
     const r = await api.auth.login({ email, password });
-    if ('twoFactorRequired' in r) return { challenge: r.challenge };
+    if ('twoFactorRequired' in r) return { challenge: r.challenge, methods: r.methods };
     get().accept(r);
     return null;
   },
   async completeTwoFactor(challenge, code) { get().accept(await api.auth.loginTwoFactor({ challenge, code })); },
+  async completeWithKey(challenge) {
+    const { askForKey } = await import('@/lib/webauthn');
+    const response = await askForKey(await api.auth.loginKeyOptions(challenge));
+    get().accept(await api.auth.loginKey({ challenge, response }));
+  },
   async register(email, password, name) { get().accept(await api.auth.register({ email, password, name })); },
   async logout() { await api.auth.logout().catch(() => undefined); get().clear({ onPurpose: true }); },
   setUser(user) { set({ user }); },

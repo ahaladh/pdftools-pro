@@ -36,6 +36,19 @@ describe('doctor: production configuration review', () => {
     expect(by(ok, 'verified email for checkout').level).toBe('pass');
     expect(() => loadEnv({ ...accounts, TWO_FACTOR_KEY: 'too short' })).toThrow(/TWO_FACTOR_KEY/);
   });
+  it('reviews the security-key settings: https origin, RP ID that matches the host, and explains what breaks', () => {
+    const accounts = { ...GOOD, MONGODB_URI: 'mongodb://x', JWT_ACCESS_SECRET: JWT };
+    const name = 'security keys (WebAuthn)';
+    expect(by(checkConfig(loadEnv(accounts)), name)).toMatchObject({ level: 'pass', detail: expect.stringContaining('RP ID pdf.example.com') });
+    expect(by(checkConfig(loadEnv({ ...accounts, WEBAUTHN_RP_ID: 'example.com' })), name).level).toBe('pass'); // a parent domain is fine
+    const wrongRp = by(checkConfig(loadEnv({ ...accounts, WEBAUTHN_RP_ID: 'other.example' })), name);
+    expect(wrongRp.level).toBe('fail'); expect(wrongRp.detail).toMatch(/never be used/);
+    const http = by(checkConfig(loadEnv({ ...accounts, WEBAUTHN_ORIGINS: 'http://pdf.example.com' })), name);
+    expect(http.level).toBe('fail'); expect(http.detail).toMatch(/not https/);
+    expect(by(checkConfig(loadEnv({ ...accounts, NODE_ENV: 'development', PUBLIC_URL: 'http://localhost:5173', CORS_ORIGINS: 'http://localhost:5173' })), name).level).toBe('pass'); // localhost is exempt
+    expect(by(checkConfig(loadEnv({ ...accounts, NODE_ENV: 'development', PUBLIC_URL: 'http://pdf.example.com' })), name).level).toBe('warn'); // advisory outside production
+    expect(by(checkConfig(loadEnv({ ...accounts, NODE_ENV: 'development', PUBLIC_URL: 'not a url' })), name).level).toBe('fail');
+  });
   it('requires Stripe key and webhook secret together; warns about leftovers', () => {
     expect(by(checkConfig(loadEnv({ ...GOOD, STRIPE_SECRET_KEY: 'sk_test_x' })), 'billing').level).toBe('fail');
     expect(by(checkConfig(loadEnv({ ...GOOD, STRIPE_SECRET_KEY: 'sk_test_x', STRIPE_WEBHOOK_SECRET: 'whsec_x' })), 'billing').level).toBe('pass');
