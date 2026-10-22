@@ -39,11 +39,17 @@ function ToolPageInner({ toolId }: { toolId: string }) {
   const tool = getTool(toolId)!;
   const available = tool.status === 'available' && isToolId(toolId);
   const isWs = (WORKSPACE_TOOLS as readonly string[]).includes(toolId);
-  /** Workspace tools take one PDF; extra image files come from the editor itself. */
-  const multi = tool.multiple && !isWs;
   const cfg = useQuery({ queryKey: ['config'], queryFn: api.config, staleTime: 5 * 60_000 });
+  // Batch mode: run a one-file tool on each of many files and get one ZIP. It is a plan entitlement (files per batch; 0 = not included).
+  const authUser = useAuth((a) => a.user);
+  const plans = useQuery({ queryKey: ['plans'], queryFn: api.plans, staleTime: 5 * 60_000 });
+  const batchLimit = plans.data?.find((p) => p.id === (authUser ? authUser.effectivePlan : 'guest'))?.batchFiles ?? 0;
+  const [batchMode, setBatchMode] = useState(false);
+  const batching = batchMode && !!tool.batchable && batchLimit > 0;
+  /** Workspace tools take one PDF; extra image files come from the editor itself. */
+  const multi = (tool.multiple && !isWs) || batching;
   const maxBytes = (cfg.data?.limits.maxFileMB ?? 50) * 1024 * 1024;
-  const maxFiles = cfg.data?.limits.maxFiles ?? 20;
+  const maxFiles = batching ? batchLimit : (tool.maxFiles ?? cfg.data?.limits.maxFiles ?? 20);
 
   const [files, setFiles] = useState<File[]>([]);
   const [options, setOptions] = useState<Record<string, unknown>>(DEFAULT_OPTIONS[toolId] ?? {});
@@ -83,7 +89,7 @@ function ToolPageInner({ toolId }: { toolId: string }) {
     });
     setProblems(bad);
     if (!good.length) return;
-    setFiles((cur) => (multi ? [...cur, ...good].slice(0, tool.maxFiles ?? maxFiles) : [good[0]!]));
+    setFiles((cur) => (multi ? [...cur, ...good].slice(0, maxFiles) : [good[0]!]));
     if (!multi) { setOrganizer(null); setWs(null); }
   }, [tool, maxBytes, maxFiles, multi, isWs]);
 
@@ -127,7 +133,7 @@ function ToolPageInner({ toolId }: { toolId: string }) {
     setPhase('uploading'); setUploadPct(0);
     try {
       const upload = isWs ? [files[0]!, ...(ws?.images ?? [])] : files;
-      const { jobId } = await api.submit(toolId, upload, parsed.data, setUploadPct, ac.signal);
+      const { jobId } = await api.submit(toolId, upload, parsed.data, setUploadPct, ac.signal, batching);
       setJobId(jobId); setPhase('processing');
     } catch (e) {
       if (e instanceof ApiError && e.code === 'aborted') { setPhase('select'); return; }
@@ -180,11 +186,27 @@ function ToolPageInner({ toolId }: { toolId: string }) {
             <Result job={job} onDownload={download} onAnother={reset} onDelete={deleteNow} toolId={toolId} />
           ) : (
             <>
-              {(files.length === 0 || (multi && phase === 'select' && files.length < (tool.maxFiles ?? maxFiles))) && (
+              {tool.batchable && phase === 'select' && (
+                <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50/70 p-3.5">
+                  <label className="flex items-start gap-3 text-sm">
+                    <input type="checkbox" className="mt-0.5 accent-brand-600" checked={batching} disabled={busy || batchLimit < 1}
+                      onChange={(e) => { setBatchMode(e.target.checked); if (!e.target.checked && !tool.multiple) setFiles((f) => f.slice(0, 1)); }} />
+                    <span>
+                      <span className="font-medium text-slate-900">Batch mode</span>
+                      <span className="block text-xs leading-relaxed text-slate-600">
+                        {batchLimit > 0
+                          ? `Run ${tool.name} on each file separately and get one ZIP with a result for every file. Up to ${batchLimit} files at once; each counts as one operation.`
+                          : <>Process many files at once: one ZIP with a result for each. Batch mode is included in the paid plans. <Link to="/pricing" className="text-brand-700 underline">See plans</Link></>}
+                      </span>
+                    </span>
+                  </label>
+                </div>
+              )}
+              {(files.length === 0 || (multi && phase === 'select' && files.length < maxFiles)) && (
                 <Dropzone
                   accept={isWs ? '.pdf,application/pdf' : acceptAttr(tool)} multiple={multi} disabled={busy}
                   label={files.length ? 'Add more files' : multi ? 'Drop your files here' : 'Drop your file here'}
-                  hint={`${isWs ? 'PDF' : acceptLabel(tool)} · up to ${Math.round(maxBytes / 1024 / 1024)} MB each${multi ? ` · max ${maxFiles} files` : ''}`}
+                  hint={`${isWs ? 'PDF' : acceptLabel(tool)} · up to ${Math.round(maxBytes / 1024 / 1024)} MB each${multi ? ` · max ${maxFiles} files` : ''}${batching ? ' · each file is processed separately' : ''}`}
                   onFiles={addFiles}
                 />
               )}
@@ -193,7 +215,7 @@ function ToolPageInner({ toolId }: { toolId: string }) {
               )}
               {files.length > 0 && (
                 <div className="mt-6 space-y-6">
-                  <FileList files={files} onChange={(f) => { setFiles(f); setOrganizer(null); setForm(null); if (!f.length) setWs(null); }} sortable={multi && files.length > 1} disabled={busy} />
+                  <FileList files={files} onChange={(f) => { setFiles(f); setOrganizer(null); setForm(null); if (!f.length) setWs(null); }} sortable={multi && files.length > 1 && !batching} disabled={busy} />
                   {isWs ? (
                     <Suspense fallback={<p className="text-sm text-slate-500" role="status">Loading editor…</p>}>
                       {tool.id === 'edit-content'
@@ -276,6 +298,7 @@ function Result({ job, onDownload, onAnother, onDelete, toolId }: { job: JobView
       <span className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-emerald-50 text-emerald-600 ring-8 ring-emerald-50/60"><CheckCircle2 className="h-9 w-9" aria-hidden="true" /></span>
       <h2 className="mt-5 text-2xl font-semibold tracking-tight">Your file is ready</h2>
       <p className="mt-1 text-sm text-slate-600">{job.result!.name} · {formatBytes(job.result!.bytes)}</p>
+      {s && s.processed !== undefined && s.files !== undefined && <p className="mt-1 text-sm font-medium text-slate-800" aria-label="Batch summary">{Number(s.processed)} of {Number(s.files)} files processed{Number(s.failed) > 0 ? `, ${Number(s.failed)} could not be` : ''}. The archive includes a report.</p>}
       {toolId === 'compress' && s && (
         <dl className="mx-auto mt-5 grid max-w-md grid-cols-3 gap-3 text-sm">
           <div className="rounded-xl bg-slate-50 p-3"><dt className="text-slate-500">Original</dt><dd className="font-semibold">{formatBytes(Number(s.originalBytes))}</dd></div>

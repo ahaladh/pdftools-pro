@@ -260,7 +260,7 @@ function UsageTab() {
 }
 
 const NUM_FIELDS: { key: keyof PlanConfig; label: string }[] = [
-  { key: 'maxFileMB', label: 'Max file (MB)' }, { key: 'maxPages', label: 'Max pages' }, { key: 'maxFiles', label: 'Files per job' },
+  { key: 'maxFileMB', label: 'Max file (MB)' }, { key: 'maxPages', label: 'Max pages' }, { key: 'maxFiles', label: 'Files per job' }, { key: 'batchFiles', label: 'Files per batch (0 = no batch)' },
   { key: 'dailyOps', label: 'Operations / day' }, { key: 'maxConcurrentJobs', label: 'Concurrent jobs' }, { key: 'retentionMinutes', label: 'Retention (min)' },
   { key: 'priority', label: 'Queue priority' }, { key: 'priceCents', label: 'Price (cents/mo)' },
 ];

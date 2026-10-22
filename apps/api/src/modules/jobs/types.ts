@@ -27,6 +27,10 @@ export interface JobRecord {
   heartbeatAt?: number;
   /** Set by the API; the runner polls it and aborts. Works across processes. */
   cancelRequested?: boolean;
+  /** Batch job: the tool is applied to every input and the result is one ZIP. */
+  batch?: boolean;
+  /** Operations this job counts for against quotas (the number of files in a batch; 1 otherwise). */
+  units?: number;
 }
 
 /** Persistence boundary. Memory implementation here; Mongo implementation is a production concern. */
@@ -37,6 +41,8 @@ export interface JobStore {
   update(id: string, patch: Partial<JobRecord>): Promise<JobRecord | undefined>;
   delete(id: string): Promise<void>;
   activeCount(owner: string): Promise<number>;
+  /** Operations the owner's unfinished jobs will count for (a batch of 12 files is 12). */
+  activeUnits(owner: string): Promise<number>;
   listExpired(now: number): Promise<JobRecord[]>;
   list(owner: string, limit: number): Promise<JobRecord[]>;
   /** Atomically apply `patch` only if the job is currently in one of `from`. Returns the updated job, or undefined if the precondition failed. */
@@ -63,6 +69,11 @@ export class MemoryJobStore implements JobStore {
   async activeCount(owner: string) {
     let n = 0;
     for (const j of this.jobs.values()) if (j.owner === owner && (j.state === 'queued' || j.state === 'processing' || j.state === 'uploading')) n++;
+    return n;
+  }
+  async activeUnits(owner: string) {
+    let n = 0;
+    for (const j of this.jobs.values()) if (j.owner === owner && (j.state === 'queued' || j.state === 'processing' || j.state === 'uploading')) n += j.units ?? 1;
     return n;
   }
   async listExpired(now: number) { return [...this.jobs.values()].filter((j) => j.expiresAt <= now && j.state !== 'expired' && j.state !== 'processing'); }

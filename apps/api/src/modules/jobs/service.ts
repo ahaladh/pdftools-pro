@@ -64,6 +64,9 @@ export class JobService {
     await rm(dir, { recursive: true, force: true });
   }
 
+  /** Record how many operations a reserved job will count for (a batch of N files is N), so later checks see it. */
+  async claimUnits(id: string, units: number) { await this.store.update(id, { units, batch: true }); }
+
   /** Turn a reservation into a queued job and enqueue it. */
   async submit(rec: Pick<JobRecord, 'id' | 'options' | 'inputs'> & { retentionMinutes: number }) {
     const now = Date.now();

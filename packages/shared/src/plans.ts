@@ -11,6 +11,8 @@ export const planConfigSchema = z.object({
   maxFileMB: z.number().min(1).max(5000),
   maxPages: z.number().int().min(1).max(100000),
   maxFiles: z.number().int().min(1).max(500),
+  /** Batch processing: most files one batch job may take. 0 = batch is not part of this plan. */
+  batchFiles: z.number().int().min(0).max(500).default(0),
   dailyOps: z.number().int().min(0).max(1_000_000),
   maxConcurrentJobs: z.number().int().min(1).max(100),
   retentionMinutes: z.number().int().min(1).max(60 * 24 * 30),

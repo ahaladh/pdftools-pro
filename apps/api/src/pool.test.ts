@@ -186,7 +186,7 @@ describe('when it does not apply', () => {
 
 describe('the check itself (unit)', () => {
   const settings = { get: async () => ({ maintenance: false, disabledTools: [], plans: { pro: { id: 'pro', name: 'Pro', dailyOps: 10, maxConcurrentJobs: 2, blockedTools: [] } } }), plan: async () => ({}) } as never;
-  const mk = (used: number, active: Record<string, number>) => new Entitlements(settings, { ops: async () => used } as never, { activeCount: async (o: string) => active[o] ?? 0 } as never);
+  const mk = (used: number, active: Record<string, number>) => new Entitlements(settings, { ops: async () => used } as never, { activeCount: async (o: string) => active[o] ?? 0, activeUnits: async (o: string) => active[o] ?? 0 } as never);
   const pooled = (members = ['a', 'b', 'c']) => ({ user: { plan: 'pro' }, effectivePlan: 'pro', owner: 'u:a', usageKeys: [], pool: { teamId: 't', teamName: 'Acme', key: 't:t', members: members.length, memberIds: members } }) as never;
 
   it('jobs in flight anywhere in the team count against the shared allowance, not only the caller\'s own', async () => {
@@ -281,7 +281,7 @@ describe('a per-person limit inside the pool', () => {
 
   it('counts a person\'s own running jobs against their limit (unit)', async () => {
     const settings = { get: async () => ({ maintenance: false, disabledTools: [], plans: { pro: { id: 'pro', name: 'Pro', dailyOps: 100, maxConcurrentJobs: 5, blockedTools: [] } } }) } as never;
-    const mk = (yours: number, mine: number) => new Entitlements(settings, { ops: async (k: string) => (k.startsWith('tm:') ? yours : 0) } as never, { activeCount: async (o: string) => (o === 'u:a' ? mine : 0) } as never);
+    const mk = (yours: number, mine: number) => new Entitlements(settings, { ops: async (k: string) => (k.startsWith('tm:') ? yours : 0) } as never, { activeCount: async (o: string) => (o === 'u:a' ? mine : 0), activeUnits: async (o: string) => (o === 'u:a' ? mine : 0) } as never);
     const req = { user: { _id: 'a', plan: 'pro' }, effectivePlan: 'pro', owner: 'u:a', usageKeys: [], pool: { teamId: 't', teamName: 'Acme', key: 't:t', members: 2, memberIds: ['a', 'b'], memberCap: 3 } } as never;
     await expect(mk(2, 1).check(req, 'merge')).rejects.toMatchObject({ code: 'member_cap_reached' });
     await expect(mk(2, 0).check(req, 'merge')).resolves.toBeTruthy();

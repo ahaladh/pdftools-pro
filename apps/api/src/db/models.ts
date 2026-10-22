@@ -120,6 +120,8 @@ const jobSchema = new Schema({
   usageKeys: [String],
   heartbeatAt: Number,
   cancelRequested: Boolean,
+  batch: Boolean,
+  units: Number,
   /** Metadata outlives files by 30 days for history, then Mongo removes it. */
   purgeAt: { type: Date, index: { expires: 0 } },
 }, { minimize: false });

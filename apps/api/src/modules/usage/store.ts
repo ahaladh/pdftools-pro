@@ -3,7 +3,8 @@ import { UsageModel } from '../../db/models.js';
 export const today = () => new Date().toISOString().slice(0, 10);
 
 export interface UsageStore {
-  increment(keys: string[], tool: string, day?: string): Promise<void>;
+  /** Count `n` operations (a batch of 12 files is 12) against every key. */
+  increment(keys: string[], tool: string, day?: string, n?: number): Promise<void>;
   ops(key: string, day?: string): Promise<number>;
   /** Per-day op counts for one owner key, newest last. */
   series(key: string, days: number): Promise<{ day: string; ops: number }[]>;
@@ -21,7 +22,7 @@ const dayList = (days: number) => Array.from({ length: days }, (_, i) => new Dat
 
 export class MemoryUsageStore implements UsageStore {
   private m = new Map<string, number>();
-  async increment(keys: string[], _tool: string, day = today()) { for (const k of keys) this.m.set(`${k}|${day}`, (this.m.get(`${k}|${day}`) ?? 0) + 1); }
+  async increment(keys: string[], _tool: string, day = today(), n = 1) { for (const k of keys) this.m.set(`${k}|${day}`, (this.m.get(`${k}|${day}`) ?? 0) + n); }
   async ops(key: string, day = today()) { return this.m.get(`${key}|${day}`) ?? 0; }
   async series(key: string, days: number) { return dayList(days).map((day) => ({ day, ops: this.m.get(`${key}|${day}`) ?? 0 })); }
   async deleteKey(key: string) { for (const k of [...this.m.keys()]) if (k.startsWith(`${key}|`)) this.m.delete(k); }
@@ -31,9 +32,9 @@ export class MemoryUsageStore implements UsageStore {
 }
 
 export class MongoUsageStore implements UsageStore {
-  async increment(keys: string[], tool: string, day = today()) {
+  async increment(keys: string[], tool: string, day = today(), n = 1) {
     const safeTool = tool.replace(/[^a-z0-9-]/gi, '_');
-    await Promise.all(keys.map((key) => UsageModel.updateOne({ key, day }, { $inc: { ops: 1, [`byTool.${safeTool}`]: 1 } }, { upsert: true })));
+    await Promise.all(keys.map((key) => UsageModel.updateOne({ key, day }, { $inc: { ops: n, [`byTool.${safeTool}`]: n } }, { upsert: true })));
   }
   async ops(key: string, day = today()) { const doc = (await UsageModel.findOne({ key, day }).lean()) as { ops?: number } | null;
     return doc?.ops ?? 0; }

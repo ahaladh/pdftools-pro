@@ -106,6 +106,11 @@ const schema = z.object({
   TEAM_MIN_SEATS: num(2),
   TEAM_MAX_SEATS: num(100),
   TEAM_INVITE_TTL_DAYS: num(7),
+  /** Batch processing: most files one batch job may take on each paid plan (0 turns batch off for that plan). Admins can change it at runtime. */
+  BATCH_FILES_PRO: num(20),
+  BATCH_FILES_BUSINESS: num(100),
+  /** A batch gets `JOB_TIMEOUT_SECONDS` for each file, for at most this many files' worth in total. */
+  BATCH_TIMEOUT_FACTOR: num(10),
   /** Talk to Stripe at this URL instead of api.stripe.com: for `stripe-mock` or a test double. Never set it in production. */
   STRIPE_API_BASE: optional(z.string().url()),
   VERIFY_TOKEN_TTL_HOURS: num(24),

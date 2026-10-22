@@ -28,6 +28,10 @@ export class MongoJobStore implements JobStore {
   }
   async delete(id: string) { await JobModel.deleteOne({ id }); }
   async activeCount(owner: string) { return JobModel.countDocuments({ owner, state: { $in: ACTIVE } }); }
+  async activeUnits(owner: string) {
+    const r = (await JobModel.aggregate([{ $match: { owner, state: { $in: ACTIVE } } }, { $group: { _id: null, n: { $sum: { $ifNull: ['$units', 1] } } } }])) as { n: number }[];
+    return r[0]?.n ?? 0;
+  }
   async listExpired(now: number) {
     const rows = await JobModel.find({ expiresAt: { $lte: now }, state: { $nin: ['expired', 'processing'] } }).limit(500).lean();
     return rows.map((r) => strip(r)!);

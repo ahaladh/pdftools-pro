@@ -264,6 +264,7 @@ import { TOOLS2 } from './tools2.js';
 import { TOOLS3 } from './tools3.js';
 import { CONVERT } from './convert.js';
 import { editContent } from './content-edit.js';
+import { processBatch } from './batch.js';
 import { OCR_TOOLS } from './ocr.js';
 import { PDFA_TOOLS } from './pdfa.js';
 
@@ -279,5 +280,6 @@ const CORE: Partial<Record<ToolId, Processor>> = {
 export const PROCESSORS = { ...CORE, ...TOOLS2, ...TOOLS3, ...CONVERT, 'edit-content': editContent, ...OCR_TOOLS, ...PDFA_TOOLS } as Record<ToolId, Processor>;
 
 export async function processTool(tool: ToolId, ctx: ProcessContext): Promise<ProcessResult> {
-  return PROCESSORS[tool]({ ...ctx, deadline: ctx.deadline ?? Date.now() + ctx.timeoutMs });
+  const c = { ...ctx, deadline: ctx.deadline ?? Date.now() + ctx.timeoutMs };
+  return ctx.batch ? processBatch(tool, c, PROCESSORS[tool]) : PROCESSORS[tool](c);
 }

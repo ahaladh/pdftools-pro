@@ -46,6 +46,21 @@ describe('saved settings survive a reload from MongoDB', () => {
     expect(JSON.stringify(warn.mock.calls[0])).toMatch(/NOT in effect/);
   });
 
+  it('a settings document stored before batch processing existed keeps the deployment default for it (not silently off), and an explicit 0 is respected', async () => {
+    const strip = (plans: Record<string, Record<string, unknown>>) => Object.fromEntries(Object.entries(plans).map(([k, p]) => { const { batchFiles: _b, ...rest } = p; return [k, rest]; }));
+    const d = defaults();
+    await SettingModel.findByIdAndUpdate('app', { value: { ...d, plans: strip(d.plans as never) } }, { upsert: true });
+    const old = await fresh().get();
+    expect(old.plans.pro.batchFiles).toBe(20); expect(old.plans.business.batchFiles).toBe(100); expect(old.plans.free.batchFiles).toBe(0); expect(old.plans.guest.batchFiles).toBe(0);
+    // an administrator who switched it off for Pro said 0 explicitly: that stands
+    await SettingModel.findByIdAndUpdate('app', { value: { ...d, plans: { ...d.plans, pro: { ...d.plans.pro, batchFiles: 0 } } } }, { upsert: true });
+    expect((await fresh().get()).plans.pro.batchFiles).toBe(0);
+    // and the deployment's own configuration is what "default" means
+    const custom = new SettingsService(new MongoSettingsStore(), defaultSettings(loadEnv({ NODE_ENV: 'test', BATCH_FILES_PRO: '7' })), 0);
+    await SettingModel.findByIdAndUpdate('app', { value: { ...d, plans: strip(d.plans as never) } }, { upsert: true });
+    expect((await custom.get()).plans.pro.batchFiles).toBe(7);
+  });
+
   it('withoutNulls removes null and undefined everywhere, and nothing else', () => {
     expect(withoutNulls({ a: 1, b: null, c: undefined, d: [1, null, { e: null, f: 0 }], g: { h: false, i: '' } })).toEqual({ a: 1, d: [1, null, { f: 0 }], g: { h: false, i: '' } });
   });

@@ -28,7 +28,7 @@ export class Entitlements {
     if (req.pool) {
       // Shared pool: one counter for the team, sized by how many people are in it. Concurrency stays per person.
       // Jobs in flight anywhere in the team count too: they are not in the shared counter until they finish.
-      const [mine, inFlight, used] = await Promise.all([this.jobs.activeCount(req.owner), Promise.all(req.pool.memberIds.map((id) => this.jobs.activeCount(`u:${id}`))).then((a) => a.reduce((x, y) => x + y, 0)), this.usage.ops(req.pool.key)]);
+      const [mine, myUnits, inFlight, used] = await Promise.all([this.jobs.activeCount(req.owner), this.jobs.activeUnits(req.owner), Promise.all(req.pool.memberIds.map((id) => this.jobs.activeUnits(`u:${id}`))).then((a) => a.reduce((x, y) => x + y, 0)), this.usage.ops(req.pool.key)]);
       if (mine >= plan.maxConcurrentJobs) throw new HttpError(429, 'too_many_jobs', 'You already have jobs in progress. Please wait for them to finish.');
       const limit = plan.dailyOps * req.pool.members;
       if (used + inFlight >= limit) {
@@ -37,17 +37,41 @@ export class Entitlements {
       // The team may also limit what any one person can draw from the pool in a day.
       if (req.pool.memberCap) {
         const yours = await this.usage.ops(memberKey(req.pool.teamId, String(req.user?._id)));
-        if (yours + mine >= req.pool.memberCap) {
+        if (yours + myUnits >= req.pool.memberCap) {
           throw new HttpError(429, 'member_cap_reached', `Your team “${req.pool.teamName}” limits each person to ${req.pool.memberCap} operations a day, and you have reached it. It resets tomorrow; a team owner can raise the limit.`);
         }
       }
       return plan;
     }
-    const [active, ...used] = await Promise.all([this.jobs.activeCount(req.owner), ...req.usageKeys.map((k) => this.usage.ops(k))]);
+    const [active, activeU, ...used] = await Promise.all([this.jobs.activeCount(req.owner), this.jobs.activeUnits(req.owner), ...req.usageKeys.map((k) => this.usage.ops(k))]);
     if (active >= plan.maxConcurrentJobs) throw new HttpError(429, 'too_many_jobs', 'You already have jobs in progress. Please wait for them to finish.');
-    if (Math.max(0, ...used) + active >= plan.dailyOps) {
+    if (Math.max(0, ...used) + activeU >= plan.dailyOps) {
       throw new HttpError(429, 'quota_exceeded', `You have reached today's limit of ${plan.dailyOps} operations on the ${plan.name} plan.${req.user ? '' : ' Create a free account for a higher limit.'}`);
     }
     return plan;
   }
+
+  /**
+   * A batch counts one operation per file. The size is only known once the upload has been read, so this runs then: is there room
+   * for all of it today? The job's own reservation already counts as one unit, hence the `- 1`. Throws with how much is left.
+   */
+  async ensureUnits(req: Request, plan: PlanConfig, units: number): Promise<void> {
+    if (units <= 1) return;
+    if (req.pool) {
+      const [myUnits, inFlight, used] = await Promise.all([this.jobs.activeUnits(req.owner), Promise.all(req.pool.memberIds.map((id) => this.jobs.activeUnits(`u:${id}`))).then((a) => a.reduce((x, y) => x + y, 0)), this.usage.ops(req.pool.key)]);
+      const limit = plan.dailyOps * req.pool.members;
+      const left = limit - used - (inFlight - 1);
+      if (units > left) throw new HttpError(429, 'quota_exceeded', `This batch of ${units} files is more than your team's shared allowance has left today (${Math.max(0, left)} of ${limit}). Send fewer files, or try again tomorrow.`);
+      if (req.pool.memberCap) {
+        const mine = limitLeft(req.pool.memberCap, await this.usage.ops(memberKey(req.pool.teamId, String(req.user?._id))), myUnits - 1);
+        if (units > mine) throw new HttpError(429, 'member_cap_reached', `This batch of ${units} files would take you past your team's limit of ${req.pool.memberCap} operations a day per person (${mine} left today). Send fewer files, or ask a team owner to raise the limit.`);
+      }
+      return;
+    }
+    const [activeU, ...used] = await Promise.all([this.jobs.activeUnits(req.owner), ...req.usageKeys.map((k) => this.usage.ops(k))]);
+    const left = plan.dailyOps - Math.max(0, ...used) - (activeU - 1);
+    if (units > left) throw new HttpError(429, 'quota_exceeded', `This batch of ${units} files is more than the ${Math.max(0, left)} operation${left === 1 ? '' : 's'} left today on the ${plan.name} plan. Send fewer files, or try again tomorrow.`);
+  }
 }
+
+const limitLeft = (cap: number, used: number, inFlight: number) => Math.max(0, cap - used - inFlight);

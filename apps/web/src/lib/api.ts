@@ -109,13 +109,13 @@ export const api = {
   },
 
   /** multipart upload with progress (fetch cannot report upload progress). Retries once after a token refresh. */
-  submit(tool: string, files: File[], options: unknown, onProgress: (pct: number) => void, signal?: AbortSignal): Promise<{ jobId: string }> {
+  submit(tool: string, files: File[], options: unknown, onProgress: (pct: number) => void, signal?: AbortSignal, batch = false): Promise<{ jobId: string }> {
     const attempt = (retry: boolean): Promise<{ jobId: string }> => new Promise((resolve, reject) => {
       const form = new FormData();
       form.append('options', JSON.stringify(options ?? {}));
       for (const f of files) form.append('files', f, f.name);
       const xhr = new XMLHttpRequest();
-      xhr.open('POST', `/api/pdf/${tool}`);
+      xhr.open('POST', `/api/pdf/${tool}${batch ? '?batch=1' : ''}`);
       xhr.withCredentials = true;
       const t = getToken(); if (t) xhr.setRequestHeader('Authorization', `Bearer ${t}`);
       xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(Math.round((e.loaded / e.total) * 100));

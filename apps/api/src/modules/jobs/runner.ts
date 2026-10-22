@@ -44,7 +44,10 @@ export class JobRunner {
     }, HEARTBEAT_MS);
     try {
       await mkdir(workDir, { recursive: true, mode: 0o700 });
-      const timeoutMs = this.env.JOB_TIMEOUT_SECONDS * 1000;
+      // A batch gets the single-file time for each file, up to BATCH_TIMEOUT_FACTOR files' worth for the whole job.
+      const fileTimeoutMs = this.env.JOB_TIMEOUT_SECONDS * 1000;
+      const factor = job.batch ? Math.max(1, Math.min(job.inputs.length, this.env.BATCH_TIMEOUT_FACTOR)) : 1;
+      const timeoutMs = fileTimeoutMs * factor;
       const iso = Math.max(1536, this.env.ISOLATION_MEMORY_MB);
       // A child process cannot raise a limit its parent was given, so engine caps are clamped to the job process cap.
       const limits = {
@@ -53,10 +56,11 @@ export class JobRunner {
       };
       const ctx = {
         workDir, inputs: job.inputs, options: job.options, signal: ac.signal, timeoutMs, maxPages: job.limits.maxPages, limits,
+        ...(job.batch ? { batch: true, fileTimeoutMs } : {}),
         onProgress: (p: number) => void this.store.update(id, { progress: p }).catch(() => undefined),
       };
       const res = this.env.ISOLATE_JOBS
-        ? await processToolIsolated(job.tool, ctx, { memoryMB: iso, cpuSeconds: this.env.ENGINE_CPU_SECONDS * 2, fileMB: this.env.ENGINE_MAX_FILE_MB })
+        ? await processToolIsolated(job.tool, ctx, { memoryMB: iso, cpuSeconds: this.env.ENGINE_CPU_SECONDS * 2 * factor, fileMB: this.env.ENGINE_MAX_FILE_MB })
         : await processTool(job.tool, ctx);
       if (ac.signal.aborted) throw new ToolError('cancelled', 'Job was cancelled');
 
@@ -93,7 +97,9 @@ export class JobRunner {
       // If another actor (e.g. the reaper) already finalised the job, secrets must still not outlive processing.
       if (!done) await this.store.update(id, { options: scrub(job.options) as JobRecord['options'] }).catch(() => undefined);
       if (done && outcome.state === 'completed') {
-        await this.usage.increment(job.usageKeys, job.tool).catch((e) => this.log.error({ err: e }, 'usage increment failed'));
+        // A batch counts one operation per file that was actually processed.
+        const ops = job.batch ? Number((outcome.stats as { processed?: number } | undefined)?.processed ?? 1) : 1;
+        await this.usage.increment(job.usageKeys, job.tool, undefined, ops).catch((e) => this.log.error({ err: e }, 'usage increment failed'));
         this.log.info({ jobId: id, tool: job.tool, bytes: (outcome.result as { bytes: number }).bytes }, 'job completed');
       }
     } finally {

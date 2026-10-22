@@ -20,6 +20,10 @@ export interface ProcessContext {
   signal?: AbortSignal;
   maxPages: number;
   onProgress?: (percent: number) => void;
+  /** Apply the tool to each input in turn and return one ZIP (see batch.ts). Only for tools marked batchable. */
+  batch?: boolean;
+  /** Batch only: time each file may take (the whole batch has `timeoutMs`). */
+  fileTimeoutMs?: number;
 }
 
 export interface ProcessResult {

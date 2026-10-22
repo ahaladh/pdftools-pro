@@ -27,6 +27,8 @@ export interface ToolDefinition {
   /** Hard maximum number of input files (defaults to the global limit). */
   maxFiles?: number;
   popular?: boolean;
+  /** One file in, one file out, with options that make sense for any document: can be applied to many files in one batch job. */
+  batchable?: boolean;
   /** Zod schema for the tool-specific options object. */
   options?: z.ZodTypeAny;
   faq: { q: string; a: string }[];
@@ -161,7 +163,7 @@ export const TOOLS: ToolDefinition[] = [
     related: ['extract-pages', 'organize', 'merge'],
   },
   {
-    id: 'compress', name: 'Compress PDF', category: 'compress', status: 'available', popular: true,
+    id: 'compress', name: 'Compress PDF', category: 'compress', status: 'available', batchable: true, popular: true,
     short: 'Reduce PDF file size with selectable quality.',
     description: 'Re-optimizes images and structure using Ghostscript. The size reduction depends entirely on your file and is shown after processing.',
     accept: ['pdf'], multiple: false, minFiles: 1, options: optionSchemas.compress,
@@ -172,7 +174,7 @@ export const TOOLS: ToolDefinition[] = [
     related: ['merge', 'split', 'pdf-to-images'],
   },
   {
-    id: 'rotate', name: 'Rotate PDF', category: 'organize', status: 'available', popular: true,
+    id: 'rotate', name: 'Rotate PDF', category: 'organize', status: 'available', batchable: true, popular: true,
     short: 'Rotate all or selected pages.',
     description: 'Rotate every page, or only specific pages and ranges, by 90, 180 or 270 degrees.',
     accept: ['pdf'], multiple: false, minFiles: 1, options: optionSchemas.rotate,
@@ -196,14 +198,14 @@ export const TOOLS: ToolDefinition[] = [
     related: relatedDefault, 
   },
   {
-    id: 'page-numbers', name: 'Add page numbers', category: 'edit', status: 'available',
+    id: 'page-numbers', name: 'Add page numbers', category: 'edit', status: 'available', batchable: true,
     short: 'Stamp page numbers onto your PDF.',
     description: 'Choose position, starting number, format and font size. Numbers are added as new text; existing content is untouched.',
     accept: ['pdf'], multiple: false, minFiles: 1, options: optionSchemas['page-numbers'],
     faq: [], related: ['watermark', 'merge', 'organize'],
   },
   {
-    id: 'watermark', name: 'Add watermark', category: 'edit', status: 'available', popular: true,
+    id: 'watermark', name: 'Add watermark', category: 'edit', status: 'available', batchable: true, popular: true,
     short: 'Overlay a text watermark on pages.',
     description: 'Add a diagonal or straight text watermark with adjustable opacity, size and colour. Text-only; image watermarks are planned.',
     accept: ['pdf'], multiple: false, minFiles: 1, options: optionSchemas.watermark,
@@ -227,55 +229,55 @@ export const TOOLS: ToolDefinition[] = [
     related: ['images-to-pdf', 'compress', 'split'],
   },
   {
-    id: 'pdf-to-word', name: 'PDF to Word', category: 'convert', status: 'available', popular: true,
+    id: 'pdf-to-word', name: 'PDF to Word', category: 'convert', status: 'available', batchable: true, popular: true,
     short: 'Convert a PDF to an editable DOCX.', description: 'Converts the text and graphics of a text-based PDF into a Word (DOCX) file with LibreOffice. Text is positioned to match the PDF, so it is editable but not always reflowable. Scanned PDFs are not converted to text because OCR is not available yet.',
     accept: ['pdf'], multiple: false, minFiles: 1, options: optionSchemas['pdf-to-word'],
     faq: [{ q: 'Will the Word file look exactly like the PDF?', a: 'Not always. PDFs store positioned text, not paragraphs, so the result is built from positioned frames and may need tidying. Fonts that are not installed on the server are substituted.' }, { q: 'Does it work on scanned PDFs?', a: 'No. A scan is a picture; without OCR there is no text to put in the document. We tell you when no text layer is found.' }], related: ['pdf-to-excel', 'pdf-to-powerpoint', 'pdf-to-text'],
   },
   {
-    id: 'pdf-to-excel', name: 'PDF to Excel', category: 'convert', status: 'available',
+    id: 'pdf-to-excel', name: 'PDF to Excel', category: 'convert', status: 'available', batchable: true,
     short: 'Extract tables from a PDF into XLSX.', description: 'Reads the text layer and splits each line into columns wherever there is a clear gap, writing one worksheet per page. Plain numbers become numeric cells; everything else stays text. Best for text-based tables; scanned PDFs are not supported.',
     accept: ['pdf'], multiple: false, minFiles: 1, options: optionSchemas['pdf-to-excel'],
     faq: [{ q: 'How accurate is the table detection?', a: 'It is a heuristic based on gaps in the text. Clean text tables work well; merged cells, tables without clear gaps and multi-line cells can be split wrongly, so check the numbers.' }, { q: 'Why is a value kept as text?', a: 'Only plain numbers are converted. IDs with leading zeros, dates, phone numbers and currency strings are kept as written so nothing is silently changed.' }], related: ['pdf-to-word', 'pdf-to-text', 'pdf-to-html'],
   },
   {
-    id: 'pdf-to-powerpoint', name: 'PDF to PowerPoint', category: 'convert', status: 'available',
+    id: 'pdf-to-powerpoint', name: 'PDF to PowerPoint', category: 'convert', status: 'available', batchable: true,
     short: 'Convert a PDF to a PPTX deck.', description: 'Imports each PDF page as one slide with LibreOffice, keeping text and graphics as separate objects where possible. Complex layouts and fonts may differ from the original.',
     accept: ['pdf'], multiple: false, minFiles: 1, options: optionSchemas['pdf-to-powerpoint'],
     faq: [{ q: 'Is every slide editable?', a: 'Text-based pages import as editable text and shapes. Scanned pages stay as pictures.' }], related: ['pdf-to-word', 'pdf-to-images', 'pdf-to-excel'],
   },
   {
-    id: 'ocr', name: 'OCR PDF', category: 'more', status: 'available', popular: true,
+    id: 'ocr', name: 'OCR PDF', category: 'more', status: 'available', batchable: true, popular: true,
     short: 'Make a scanned PDF searchable.', description: 'Recognises the text on scanned pages with Tesseract and adds it as an invisible layer under the original image, so you can search, select and copy it while the page looks exactly the same. Pages that already contain text are left alone unless you turn that off.',
     accept: ['pdf'], multiple: false, minFiles: 1, options: optionSchemas['ocr'],
     faq: [{ q: 'Will my scan look different?', a: 'No. The original page image is kept untouched; the recognised text is added invisibly on top.' }, { q: 'How accurate is it?', a: 'It depends on scan quality. Clean, straight, 300 DPI scans of printed text work best. Handwriting, low resolution, skew and unusual fonts reduce accuracy; we report the average confidence and warn when it is low.' }, { q: 'Which languages work?', a: 'The languages installed on the server (English by default). Text is stored with a standard Latin font, so Latin-script languages work; characters outside it (Cyrillic, Greek, Arabic, CJK) cannot be stored and are replaced, which we warn about.' }, { q: 'Can I correct the text?', a: 'Not here. The result is a text layer you can search and copy from; fix recognition mistakes in your own tools if needed.' }], related: ['redact', 'pdf-to-text', 'compress'],
   },
   {
-    id: 'pdf-to-pdfa', name: 'PDF to PDF/A', category: 'convert', status: 'available',
+    id: 'pdf-to-pdfa', name: 'PDF to PDF/A', category: 'convert', status: 'available', batchable: true,
     short: 'Convert to archival PDF/A.', description: 'Rewrites the PDF as PDF/A (level B conformance) with embedded fonts and an sRGB colour profile using Ghostscript. When the server has the veraPDF validator, the result is checked against the standard and only delivered if it passes; otherwise it is marked as not independently validated.',
     accept: ['pdf'], multiple: false, minFiles: 1, options: optionSchemas['pdf-to-pdfa'],
     faq: [{ q: 'Is the result really PDF/A?', a: 'When the veraPDF validator is available we run it and only return files that pass, and the result says so. Without it, the file is produced with the same settings but is not independently checked, and we say that instead of claiming compliance.' }, { q: 'What is lost?', a: 'PDF/A forbids encryption, JavaScript, audio/video and external dependencies, so those are removed. Some metadata may not carry over. Interactive form fields may be flattened.' }, { q: 'Which level should I choose?', a: 'PDF/A-2b is the usual choice. PDF/A-1b is the strictest and oldest (no transparency); PDF/A-3b additionally permits embedded files.' }, { q: 'Does it validate an existing PDF/A?', a: 'No. This converts a PDF; it is not a compliance checker for third-party files.' }], related: ['compress', 'repair', 'protect'],
   },
   {
-    id: 'office-to-pdf', name: 'Word, Excel, PowerPoint to PDF', category: 'convert', status: 'available', popular: true,
+    id: 'office-to-pdf', name: 'Word, Excel, PowerPoint to PDF', category: 'convert', status: 'available', batchable: true, popular: true,
     short: 'Convert Office documents to PDF.', description: 'Converts DOC/DOCX, XLS/XLSX and PPT/PPTX to PDF with LibreOffice. Layout fidelity depends on fonts and features used; complex documents may differ from Microsoft Office rendering.',
     accept: ['office'], multiple: false, minFiles: 1, options: optionSchemas['office-to-pdf'],
     faq: [{ q: 'Will it look identical to Word?', a: 'Not always. LibreOffice renders the file, so unusual fonts, SmartArt, macros and advanced layouts may differ. Check the result before sharing.' }, { q: 'Are macros run?', a: 'No. Documents are converted headlessly in an isolated work directory and macros are not executed.' }], related: ['merge', 'compress', 'pdf-to-images'],
   },
   {
-    id: 'protect', name: 'Protect PDF', category: 'security', status: 'available',
+    id: 'protect', name: 'Protect PDF', category: 'security', status: 'available', batchable: true,
     short: 'Encrypt a PDF with a password.', description: 'Encrypts your PDF so a password is required to open it. Choose a strong password: we cannot recover it for you.',
     accept: ['pdf'], multiple: false, minFiles: 1, options: optionSchemas['protect'],
     faq: [{ q: 'Do you store my password?', a: 'The password is used only to encrypt the file and is removed from the job record when processing ends. It is never logged.' }], related: ['unlock', 'watermark', 'compress'],
   },
   {
-    id: 'unlock', name: 'Unlock PDF', category: 'security', status: 'available',
+    id: 'unlock', name: 'Unlock PDF', category: 'security', status: 'available', batchable: true,
     short: 'Remove the password from a PDF you can open.', description: 'Removes password protection from a PDF when you supply the correct password. We cannot and do not bypass encryption without the password.',
     accept: ['pdf'], multiple: false, minFiles: 1, options: optionSchemas['unlock'],
     faq: [{ q: 'Can you crack a forgotten password?', a: 'No. This tool only works when you provide the correct password and are entitled to open the document.' }], related: ['protect', 'merge', 'compress'],
   },
   {
-    id: 'pdf-to-text', name: 'PDF to text', category: 'convert', status: 'available',
+    id: 'pdf-to-text', name: 'PDF to text', category: 'convert', status: 'available', batchable: true,
     short: 'Extract text from a PDF.', description: 'Extracts the text layer using Poppler, preserving reading layout where possible. Scanned PDFs have no text layer and will produce little or no output.',
     accept: ['pdf'], multiple: false, minFiles: 1, options: optionSchemas['pdf-to-text'],
     faq: [], related: ['pdf-to-html', 'extract-images', 'compare'],
@@ -293,13 +295,13 @@ export const TOOLS: ToolDefinition[] = [
     faq: [], related: ['pdf-to-images', 'pdf-to-text', 'compress'],
   },
   {
-    id: 'crop', name: 'Crop PDF', category: 'organize', status: 'available',
+    id: 'crop', name: 'Crop PDF', category: 'organize', status: 'available', batchable: true,
     short: 'Trim margins from pages.', description: 'Crop by percentage from each edge for all or selected pages. This sets the visible area; hidden content is not deleted from the file.',
     accept: ['pdf'], multiple: false, minFiles: 1, options: optionSchemas['crop'],
     faq: [{ q: 'Is cropped content removed?', a: 'No. Cropping changes the visible page box only. Use Redact to permanently remove content.' }], related: ['resize', 'rotate', 'organize'],
   },
   {
-    id: 'resize', name: 'Resize PDF pages', category: 'organize', status: 'available',
+    id: 'resize', name: 'Resize PDF pages', category: 'organize', status: 'available', batchable: true,
     short: 'Fit pages to a standard paper size.', description: 'Scales each page to fit A3, A4, A5, Letter or Legal, centred with aspect ratio preserved. Links, form fields and annotations are not carried over.',
     accept: ['pdf'], multiple: false, minFiles: 1, options: optionSchemas['resize'],
     faq: [], related: ['crop', 'rotate', 'merge'],
@@ -311,7 +313,7 @@ export const TOOLS: ToolDefinition[] = [
     faq: [], related: ['organize', 'merge', 'page-numbers'],
   },
   {
-    id: 'flatten', name: 'Flatten form fields', category: 'security', status: 'available',
+    id: 'flatten', name: 'Flatten form fields', category: 'security', status: 'available', batchable: true,
     short: 'Make form fields permanent.', description: 'Turns fillable form fields into static page content so they can no longer be edited. Other annotation types are not flattened by this tool.',
     accept: ['pdf'], multiple: false, minFiles: 1, options: optionSchemas['flatten'],
     faq: [], related: ['protect', 'compress', 'merge'],
@@ -329,7 +331,7 @@ export const TOOLS: ToolDefinition[] = [
     faq: [], related: ['pdf-to-text', 'merge', 'split'],
   },
   {
-    id: 'repair', name: 'Repair PDF', category: 'more', status: 'available',
+    id: 'repair', name: 'Repair PDF', category: 'more', status: 'available', batchable: true,
     short: 'Try to recover a damaged PDF.', description: 'Rewrites the file with Ghostscript, which can recover many PDFs with broken cross-reference tables or truncated endings. Recovery is best-effort; severely damaged files may be unrecoverable.',
     accept: ['pdf'], multiple: false, minFiles: 1, options: optionSchemas['repair'],
     faq: [], related: ['compress', 'merge', 'pdf-to-text'],
@@ -371,3 +373,5 @@ export const PLANNED_TOOLS: ToolDefinition[] = [
 export const ALL_TOOLS = [...TOOLS, ...PLANNED_TOOLS];
 export const getTool = (id: string) => ALL_TOOLS.find((t) => t.id === id);
 export const isToolId = (id: string): id is ToolId => id in optionSchemas;
+
+export const isBatchable = (id: string): boolean => !!TOOLS.find((t) => t.id === id)?.batchable;

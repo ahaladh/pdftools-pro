@@ -29,6 +29,17 @@ export function withoutNulls<T>(v: T): T {
   return v;
 }
 
+/**
+ * A settings document stored before a plan field existed has no value for it. Take the deployment's default for that plan
+ * (rather than the schema's neutral one) so an upgrade does not silently switch a feature off for everyone.
+ */
+export function withNewFieldDefaults(stored: unknown, defaults: AppSettings): unknown {
+  const s = stored as { plans?: Record<string, Record<string, unknown>> } | null;
+  if (!s || typeof s !== 'object' || !s.plans || typeof s.plans !== 'object') return stored;
+  const plans = Object.fromEntries(Object.entries(s.plans).map(([id, p]) => [id, p && typeof p === 'object' && p.batchFiles === undefined && id in defaults.plans ? { ...p, batchFiles: defaults.plans[id as keyof AppSettings['plans']].batchFiles } : p]));
+  return { ...s, plans };
+}
+
 /** Runtime-configurable settings with a short cache. Stored values are re-validated on load. */
 export class SettingsService {
   private cache: { at: number; value: AppSettings } | null = null;
@@ -39,7 +50,7 @@ export class SettingsService {
     let value = this.defaults;
     const stored = await this.store.load();
     if (stored) {
-      const parsed = appSettingsSchema.safeParse(withoutNulls(stored));
+      const parsed = appSettingsSchema.safeParse(withoutNulls(withNewFieldDefaults(stored, this.defaults)));
       if (parsed.success) value = parsed.data;
       // A corrupt document falls back to defaults rather than breaking requests, but never silently: the administrator's changes are being ignored.
       else this.log?.warn({ issues: parsed.error.issues.slice(0, 5).map((i) => `${i.path.join('.')}: ${i.message}`) }, 'stored settings are invalid: using defaults, so saved changes are NOT in effect');
