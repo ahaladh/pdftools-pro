@@ -108,6 +108,27 @@ Notes that bite people:
    (`certbot certonly --webroot` needs port 80 answered first: start with only the port-80 server block, or use `--standalone` once before nginx is configured.) Add a certbot deploy hook that reloads nginx; for OCSP stapling uncomment the lines marked in the template.
 7. **Verify**: `node infrastructure/scripts/smoke.mjs https://pdf.example.com`. Remove `ADMIN_PASSWORD` from `/etc/pdftools/pdftools.env` and `sudo systemctl restart pdftools-api`.
 
+## Optional: virus scanning with ClamAV
+
+Off by default. To turn it on, run `clamd` somewhere the API can reach (the workers do not need it: files are scanned at upload, by the API) and set `AV_MODE=enforce` plus `CLAMD_HOST`/`CLAMD_PORT` (or `CLAMD_SOCKET`). **This example has not been run here**; check it against the image's current documentation:
+
+```yaml
+# docker-compose.override.yml: a ClamAV daemon on the compose network, not published to the host
+services:
+  clamav:
+    image: clamav/clamav:stable
+    restart: unless-stopped
+    volumes: ["clamav-db:/var/lib/clamav"]        # keep the signature database across restarts
+    # clamd.conf must allow your biggest upload: StreamMaxLength, MaxFileSize and MaxScanSize >= your largest plan's file size
+    healthcheck: { test: ["CMD", "clamdcheck.sh"], interval: 60s, retries: 5, start_period: 120s }
+  api:
+    environment: { AV_MODE: enforce, CLAMD_HOST: clamav, CLAMD_PORT: "3310" }
+    depends_on: { clamav: { condition: service_healthy } }
+volumes: { clamav-db: {} }
+```
+
+The daemon needs about 1 to 2 GB of memory for the signature database and a minute to start. Run `node apps/api/dist/doctor.js` afterwards (its *antivirus scanner* check pings the daemon), then upload the **EICAR test file** (a harmless string every scanner flags: https://www.eicar.org/) inside a PDF once to see it refused, and watch `pdftools_av_scans_total`. Decide `AV_FAIL` deliberately: `closed` (default) pauses uploads while the scanner is down; `open` keeps the site up and unscanned. The scanner and its alerts are described in OPERATIONS.md (*Virus scanner*).
+
 ## Production build (without containers)
 
 ```bash

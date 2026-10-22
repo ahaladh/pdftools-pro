@@ -11,6 +11,7 @@ import { KeyedMutex } from '../../utils/mutex.js';
 import type { JobService } from '../jobs/service.js';
 import type { Entitlements } from '../usage/entitlements.js';
 import type { StoredInput } from '../jobs/types.js';
+import type { UploadScanner } from '../security/antivirus.js';
 
 /** A batch may carry up to this many times one file's size in total (so a plan's per-file limit still means something). */
 const BATCH_TOTAL_FACTOR = 4;
@@ -21,7 +22,7 @@ declare module 'express-serve-static-core' {
 }
 
 /** One generic endpoint per tool: POST /api/pdf/:tool (multipart: files[] + options JSON). */
-export function pdfRoutes(env: Env, jobs: JobService, ent: Entitlements) {
+export function pdfRoutes(env: Env, jobs: JobService, ent: Entitlements, scanner?: UploadScanner) {
   const r = Router();
   const reservations = new KeyedMutex();
 
@@ -110,6 +111,9 @@ export function pdfRoutes(env: Env, jobs: JobService, ent: Entitlements) {
         }
         inputs.push({ path: f.path, name: safeFilename(f.originalname), kind });
       }
+
+      // Virus scan (when enabled) before any job exists: a refused upload leaves nothing behind (the catch below removes the files).
+      await scanner?.check(req, inputs);
 
       // A batch counts one operation per file: now that the size is known, check there is room for all of it, and let later checks see it.
       if (batch) await reservations.run(req.owner, async () => { await ent.ensureUnits(req, plan, files.length); await jobs.claimUnits(id, files.length); });

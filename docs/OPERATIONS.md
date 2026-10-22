@@ -126,6 +126,17 @@ If **everyone** with 2FA is suddenly unable to sign in with a valid code, the en
 * *"The owner left the company / is unreachable."* Admin console → **Teams** → open the team → **Make owner** on one of its members. The new owner must have a **confirmed email** (they take over billing); the old owner stays on as an admin; the action is audited with your name (`admin.team_ownership_transferred`). **Verify who is asking first**: this hands someone control of a paid subscription, so confirm they are who they say (ideally through someone else in the team) before doing it. The same panel has **Delete team** (cancels the subscription first; if Stripe cannot be reached the team is kept) for abuse or abandoned teams.
 * *Seats do not match what the team pays for:* with `TEAM_BILLING=flat` seats come from `TEAM_SEATS_*`, not from Stripe; with `per_seat` they are the subscription's quantity (see *Per-seat team billing*). Lowering them never evicts members; it only blocks new invitations.
 
+### Virus scanner
+
+Only relevant with `AV_MODE=enforce`. Every upload is streamed to ClamAV (`clamd`) before any job exists; an infected file refuses the whole request (`422 malware_detected`, nothing is stored, no quota is used, the user is not told the signature, and `upload.malware_blocked` is written to the audit log with it). Metric: `pdftools_av_scans_total{result}` with `clean`, `infected`, `error`, `error_allowed`.
+
+* **`PdfToolsScannerNotAnswering`** (page): `result="error"` is climbing, and with `AV_FAIL=closed` (the default) every upload is being refused with `503 scanner_unavailable`. Run `node apps/api/dist/doctor.js`: its *antivirus scanner* check pings clamd and names the error. Usual causes: clamd is down or restarting (it takes a minute to load signatures), a wrong `CLAMD_HOST`/`CLAMD_PORT`/`CLAMD_SOCKET`, or a firewall. The API log says why per upload (`virus scanner could not answer`).
+* **`PdfToolsScannerBypassed`** (warn): the same outage under `AV_FAIL=open`: uploads are being **accepted unscanned**. Fix the scanner; decide whether that trade-off is acceptable meanwhile.
+* **Files refused as too large (`413 scan_too_large`):** clamd refuses streams over its `StreamMaxLength` (25 MB by default). Set `StreamMaxLength` (and `MaxFileSize`, `MaxScanSize`) in `clamd.conf` to at least your largest plan's file size, plus a little for the form. Remember a batch scans each file separately.
+* **`PdfToolsMalwareUploads`** (warn): more than 10 blocked uploads in an hour. Look at the audit log (`upload.malware_blocked`, with the actor or the guest id and IP) and consider rate limiting or blocking the source. If a *legitimate* file keeps being blocked, that is a signature matter for ClamAV (false positive reports go to them), not something to turn the scanner off for.
+* **Keep signatures current:** run `freshclam` (the official clamav image does) and alert on its failures; a scanner with old signatures is a false sense of safety.
+* **What it is not:** an antivirus scan catches known malware in the uploaded file. It does not make a hostile PDF safe to parse (that is what the isolation limits are for) and is no defence against new malware.
+
 ### Storage
 
 Alert: `PdfToolsStorageNearlyFull`. Results are deleted at retention; inputs immediately after processing.

@@ -45,7 +45,7 @@ describe('monitoring configuration matches the code', () => {
         const base = metric!.replace(/_(bucket|count|sum)$/, '');
         // the label must appear on at least one sample of that metric (value is checked for exact-match filters)
         const lines = scrape.split('\n').filter((l) => l.startsWith(`${base}`) && l.includes(`${label}=`));
-        if (!lines.length && !['code', 'action', 'state', 'outcome'].includes(label!)) bad.push(`${r.alert}: ${metric}{${label}="${value}"}`);
+        if (!lines.length && !['code', 'action', 'state', 'outcome', 'result'].includes(label!)) bad.push(`${r.alert}: ${metric}{${label}="${value}"}`);
       }
     }
     expect(bad).toEqual([]);

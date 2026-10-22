@@ -21,6 +21,7 @@ import { BullQueue, InlineQueue, type JobQueue } from './modules/jobs/queue.js';
 import { jobRoutes } from './modules/jobs/routes.js';
 import { fileRoutes } from './modules/files/routes.js';
 import { pdfRoutes } from './modules/pdf/routes.js';
+import { ClamdScanner, UploadScanner } from './modules/security/antivirus.js';
 import { buildOpenApi } from './modules/openapi.js';
 import { MemoryUsageStore, MongoUsageStore } from './modules/usage/store.js';
 import { Entitlements } from './modules/usage/entitlements.js';
@@ -187,7 +188,12 @@ export async function createApp(deps: AppDeps = {}) {
     for (const p of ['/api/auth', '/api/me', '/api/billing', '/api/teams', '/api/admin']) app.use(p, disabled);
   }
 
-  app.use('/api/pdf', pdfRoutes(env, jobs, entitlements));
+  const uploadScanner = new UploadScanner(
+    { mode: env.AV_MODE, failOpen: env.AV_FAIL === 'open' },
+    env.AV_MODE === 'enforce' ? new ClamdScanner({ host: env.CLAMD_HOST, port: env.CLAMD_PORT, socketPath: env.CLAMD_SOCKET, timeoutMs: env.AV_TIMEOUT_SECONDS * 1000 }) : null,
+    { log, count: (r) => metrics.avScans.inc({ result: r }), blocked: (req, signature) => audit.record(req.owner, 'upload.malware_blocked', { req, meta: { signature } }) },
+  );
+  app.use('/api/pdf', pdfRoutes(env, jobs, entitlements, uploadScanner));
   app.use('/api/jobs', jobRoutes(jobs));
   app.use('/api/files', fileRoutes(env, jobs));
   if (env.NODE_ENV !== 'production') app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(buildOpenApi(env.BRAND_NAME)));

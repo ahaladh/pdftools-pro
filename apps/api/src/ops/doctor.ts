@@ -7,6 +7,7 @@ import { zipSync, strToU8 } from 'fflate';
 import { Redis } from 'ioredis';
 import mongoose from 'mongoose';
 import { processToolIsolated, engineEnv } from '@pdftools/pdf-core';
+import { ClamdScanner } from '../modules/security/antivirus.js';
 import { adminTwoFactorRequired } from '../modules/auth/policy.js';
 import { webauthnConfig, webauthnProblems } from '../modules/auth/webauthn-config.js';
 import type { Env } from '../config/env.js';
@@ -38,6 +39,7 @@ export function checkConfig(env: Env): DoctorCheck[] {
   add('cors origins', sev(origins.some((o) => !o.startsWith('https://') || o === '*')), origins.join(', ') || '(none)');
   add('reverse proxy trust', env.TRUST_PROXY >= 1 ? 'pass' : prod ? 'warn' : 'pass', env.TRUST_PROXY >= 1 ? `TRUST_PROXY=${env.TRUST_PROXY}` : 'TRUST_PROXY=0: behind a proxy every visitor shares one IP for rate limits and guest quotas');
   add('rate limiting', sev(!env.RATE_LIMIT_ENABLED), env.RATE_LIMIT_ENABLED ? 'enabled' : 'DISABLED');
+  add('antivirus', 'pass', env.AV_MODE === 'enforce' ? `ClamAV scanning on (${env.CLAMD_SOCKET ?? `${env.CLAMD_HOST}:${env.CLAMD_PORT}`}); if it cannot answer, uploads are ${env.AV_FAIL === 'open' ? 'allowed with a warning' : 'refused'}` : 'off: uploads are not virus-scanned (recommended on for a public deployment: see docs/SECURITY.md)');
   add('job isolation', sev(!env.ISOLATE_JOBS), env.ISOLATE_JOBS ? `process isolation on (cap ${env.ISOLATION_MEMORY_MB} MB)` : 'DISABLED: documents are processed inside the API/worker process');
   add('metrics endpoint', env.METRICS_TOKEN ? 'pass' : 'warn', env.METRICS_TOKEN ? 'protected by METRICS_TOKEN' : prod ? '/metrics is disabled (set METRICS_TOKEN to enable scraping)' : 'open (development)');
   if (env.MONGODB_URI) {
@@ -144,6 +146,11 @@ export async function runDoctor(env: Env, opts: { deep?: boolean } = {}): Promis
       checks.push({ name: 'database migrations', level: s.unknown.length ? 'fail' : s.pending.length ? 'warn' : 'pass', detail: s.unknown.length ? `database is NEWER than this code: ${s.unknown.join(', ')}` : s.pending.length ? `pending: ${s.pending.join(', ')} (applied automatically at API start unless MIGRATIONS=check/off)` : 'up to date' });
     } catch (e) { checks.push({ name: 'mongodb', level: 'fail', detail: `unreachable (${(e as Error).message.slice(0, 80)})` }); }
     finally { await disconnectDb().catch(() => undefined); }
+  }
+  if (env.AV_MODE === 'enforce') {
+    const p = await new ClamdScanner({ host: env.CLAMD_HOST, port: env.CLAMD_PORT, socketPath: env.CLAMD_SOCKET, timeoutMs: 5000 }).ping();
+    checks.push({ name: 'antivirus scanner', level: p.ok ? 'pass' : env.AV_FAIL === 'closed' ? 'fail' : 'warn',
+      detail: p.ok ? `clamd reachable (${p.version})` : `clamd unreachable (${p.error}): ${env.AV_FAIL === 'closed' ? 'every upload would be refused' : 'uploads are being accepted unscanned'}` });
   }
   if (env.QUEUE_DRIVER === 'bullmq') {
     const r = new Redis(env.REDIS_URL!, { lazyConnect: true, maxRetriesPerRequest: 1, retryStrategy: () => null });

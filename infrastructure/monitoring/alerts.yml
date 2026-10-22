@@ -46,6 +46,20 @@ groups:
         expr: increase(pdftools_job_failures_total{code="resource_limit"}[1h]) > 10
         labels: { severity: warn }
         annotations: { summary: "Many jobs are hitting memory/CPU limits: abuse, or limits set too low for legitimate files" }
+      - alert: PdfToolsScannerNotAnswering
+        expr: sum(increase(pdftools_av_scans_total{result="error"}[10m])) > 0
+        for: 5m
+        labels: { severity: page }
+        annotations: { summary: "The virus scanner is not answering, so uploads are being refused (AV_FAIL=closed)", runbook: "docs/OPERATIONS.md#virus-scanner" }
+      - alert: PdfToolsScannerBypassed
+        expr: sum(increase(pdftools_av_scans_total{result="error_allowed"}[10m])) > 0
+        for: 5m
+        labels: { severity: warn }
+        annotations: { summary: "The virus scanner is not answering and uploads are being accepted unscanned (AV_FAIL=open)", runbook: "docs/OPERATIONS.md#virus-scanner" }
+      - alert: PdfToolsMalwareUploads
+        expr: sum(increase(pdftools_av_scans_total{result="infected"}[1h])) > 10
+        labels: { severity: warn }
+        annotations: { summary: "Many uploads were blocked by the virus scanner in the last hour: someone is probing the service, or a scanner rule is too aggressive", runbook: "docs/OPERATIONS.md#virus-scanner" }
       - alert: PdfToolsJobsSlow
         expr: histogram_quantile(0.95, sum by (le) (rate(pdftools_job_duration_seconds_bucket[15m]))) > 120
         for: 15m

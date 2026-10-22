@@ -15,6 +15,7 @@ export class Metrics {
   readonly reaped = new Counter({ name: 'pdftools_reaped_jobs_total', help: 'Jobs failed by the reaper', labelNames: ['code'], registers: [this.registry] });
   readonly apiErrors = new Counter({ name: 'pdftools_api_errors_total', help: 'Error responses by code', labelNames: ['code', 'status'], registers: [this.registry] });
   readonly auditEvents = new Counter({ name: 'pdftools_audit_events_total', help: 'Audit events (logins, resets, admin changes...)', labelNames: ['action'], registers: [this.registry] });
+  readonly avScans = new Counter({ name: 'pdftools_av_scans_total', help: 'Uploaded files by virus-scan result (clean, infected, error, error_allowed)', labelNames: ['result'], registers: [this.registry] });
   readonly queueDepth = new Gauge({ name: 'pdftools_queue_jobs', help: 'Jobs in the queue by state', labelNames: ['state'], registers: [this.registry] });
   readonly storageBytes = new Gauge({ name: 'pdftools_storage_bytes', help: 'Bytes held in job storage', registers: [this.registry] });
   readonly storageLimitBytes = new Gauge({ name: 'pdftools_storage_limit_bytes', help: 'Configured storage cap (MAX_STORAGE_MB); 0 = unlimited', registers: [this.registry] });

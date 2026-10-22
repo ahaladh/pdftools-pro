@@ -106,6 +106,18 @@ const schema = z.object({
   TEAM_MIN_SEATS: num(2),
   TEAM_MAX_SEATS: num(100),
   TEAM_INVITE_TTL_DAYS: num(7),
+  /**
+   * Virus scanning of uploads with ClamAV (clamd). `off` (default): no scanning. `enforce`: every upload is scanned before any job
+   * exists. If the scanner cannot answer, uploads are refused (AV_FAIL=closed, default) or allowed with a warning (open).
+   * clamd's StreamMaxLength (25 MB by default) must be raised to the largest upload you allow, or bigger files are refused.
+   */
+  AV_MODE: z.enum(['off', 'enforce']).default('off'),
+  AV_FAIL: z.enum(['closed', 'open']).default('closed'),
+  CLAMD_HOST: z.string().default('127.0.0.1'),
+  CLAMD_PORT: num(3310),
+  /** Unix socket of clamd; used instead of host/port when set. */
+  CLAMD_SOCKET: optional(z.string()),
+  AV_TIMEOUT_SECONDS: num(60),
   /** Batch processing: most files one batch job may take on each paid plan (0 turns batch off for that plan). Admins can change it at runtime. */
   BATCH_FILES_PRO: num(20),
   BATCH_FILES_BUSINESS: num(100),
