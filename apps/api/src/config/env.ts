@@ -2,6 +2,11 @@ import { z } from 'zod';
 import { DEFAULT_GUEST_LIMITS } from '@pdftools/shared';
 
 const num = (d: number) => z.coerce.number().default(d);
+/**
+ * An optional value where an empty `KEY=` (as .env.example ships for secrets the operator fills in, or an unset compose
+ * variable) simply means "not set". Not used for settings where empty is a real answer: PREMIUM_TOOLS= means "no premium tools".
+ */
+const optional = <T extends z.ZodTypeAny>(s: T) => z.preprocess((v) => (v === '' ? undefined : v), s.optional());
 /** Real boolean parsing: z.coerce.boolean() would turn the string "false" into true. */
 const bool = (d: boolean) => z.enum(['true', 'false', '1', '0', 'yes', 'no', '']).default(d ? 'true' : 'false').transform((v) => (v === '' ? d : v === 'true' || v === '1' || v === 'yes'));
 
@@ -13,7 +18,7 @@ const schema = z.object({
   CORS_ORIGINS: z.string().default('http://localhost:5173'),
   TRUST_PROXY: z.coerce.number().default(0),
   /** HMAC secret for short-lived download links. Required in production. */
-  DOWNLOAD_SECRET: z.string().min(32).optional(),
+  DOWNLOAD_SECRET: optional(z.string().min(32)),
   DOWNLOAD_LINK_TTL_SECONDS: num(600),
   STORAGE_DIR: z.string().default('./data'),
   MAX_FILE_MB: num(DEFAULT_GUEST_LIMITS.maxFileBytes / 1024 / 1024),
@@ -33,7 +38,7 @@ const schema = z.object({
   // --- operations ---
   APP_VERSION: z.string().default('dev'),
   /** Bearer token for /metrics. In production /metrics is disabled unless this is set. */
-  METRICS_TOKEN: z.string().min(16).optional(),
+  METRICS_TOKEN: optional(z.string().min(16)),
   /** On SIGTERM: report not-ready for this long so the load balancer stops sending traffic, then stop accepting. */
   SHUTDOWN_DRAIN_SECONDS: num(5),
   /** Then wait at most this long for in-flight requests and (inline mode) running jobs before exiting. */
@@ -69,7 +74,7 @@ const schema = z.object({
   // --- accounts (enabled only when MONGODB_URI is set; otherwise guest-only mode) ---
   MONGODB_URI: z.string().optional(),
   /** HMAC secret for access tokens. Required (>=32 chars) in production when accounts are enabled. */
-  JWT_ACCESS_SECRET: z.string().min(32).optional(),
+  JWT_ACCESS_SECRET: optional(z.string().min(32)),
   ACCESS_TOKEN_TTL_MINUTES: num(15),
   REFRESH_TOKEN_TTL_DAYS: num(30),
   /** Public origin of the site; used in emails and billing redirects. */
@@ -92,10 +97,20 @@ const schema = z.object({
   /** Seats per team plan (members plus pending invitations). A team without a subscription has one: its owner. */
   TEAM_SEATS_PRO: num(3),
   TEAM_SEATS_BUSINESS: num(10),
+  /**
+   * How a team pays. `flat`: one subscription at a flat price, seats from TEAM_SEATS_* (the default). `per_seat`: the plan's
+   * Stripe price is charged *per seat* and the team's seats are the subscription's quantity (bounded by the two below).
+   * Before switching an existing deployment, set the quantity of existing team subscriptions to the seats those teams have.
+   */
+  TEAM_BILLING: z.enum(['flat', 'per_seat']).default('flat'),
+  TEAM_MIN_SEATS: num(2),
+  TEAM_MAX_SEATS: num(100),
   TEAM_INVITE_TTL_DAYS: num(7),
+  /** Talk to Stripe at this URL instead of api.stripe.com: for `stripe-mock` or a test double. Never set it in production. */
+  STRIPE_API_BASE: optional(z.string().url()),
   VERIFY_TOKEN_TTL_HOURS: num(24),
   /** Encrypts two-factor secrets at rest. Falls back to JWT_ACCESS_SECRET; set it separately so rotating the JWT secret does not lock users out. */
-  TWO_FACTOR_KEY: z.string().min(32).optional(),
+  TWO_FACTOR_KEY: optional(z.string().min(32)),
   /**
    * Earlier values of TWO_FACTOR_KEY (or the JWT secret it replaced), comma-separated, only while rotating: secrets sealed
    * with them still open, new ones are sealed with the current key. Remove once `rotate-2fa status` shows nothing left on them.
@@ -104,8 +119,8 @@ const schema = z.object({
     .refine((l) => l.length <= 3 && l.every((k) => k.length >= 32), 'TWO_FACTOR_KEY_PREVIOUS: up to 3 keys, each at least 32 characters, comma-separated'),
   MAIL_FROM: z.string().default('PDFTools Pro <no-reply@localhost>'),
   /** Optional first-admin bootstrap: created at startup only if no user has this email. */
-  ADMIN_EMAIL: z.string().email().optional(),
-  ADMIN_PASSWORD: z.string().min(12).optional(),
+  ADMIN_EMAIL: optional(z.string().email()),
+  ADMIN_PASSWORD: optional(z.string().min(12)),
 
   // --- billing (Stripe). Unset => billing endpoints report "not configured". ---
   STRIPE_SECRET_KEY: z.string().optional(),

@@ -6,6 +6,7 @@ import { BillingEventModel, TeamModel, UserModel } from '../../db/models.js';
 import { HttpError } from '../../utils/errors.js';
 import type { UserDoc } from '../auth/service.js';
 import type { SettingsService } from '../settings/service.js';
+import { seatLimits } from './seats.js';
 
 /** Subset of the Stripe SDK we use, so tests can inject a fake client. */
 export type StripeClient = Pick<Stripe, 'customers' | 'checkout' | 'billingPortal' | 'subscriptions' | 'webhooks'>;
@@ -43,9 +44,26 @@ export class BillingService {
     return session.url;
   }
 
-  /** A team subscribes as itself: its own Stripe customer and subscription, so billing survives members and owners changing. */
-  async checkoutTeam(team: UserDoc, owner: UserDoc, plan: PlanId): Promise<string> {
+  get perSeat() { return this.env.TEAM_BILLING === 'per_seat'; }
+
+  /** Validate a seat count against the limits (and the people the team already has, `floor`). */
+  private checkSeats(seats: unknown, floor: number): number {
+    const { min, max } = seatLimits(this.env, floor);
+    if (typeof seats !== 'number' || !Number.isInteger(seats) || seats < min || seats > max) {
+      throw new HttpError(400, 'invalid_seats', `Choose a whole number of seats from ${min} to ${max}${floor >= min && floor > 1 ? ` (the team already has ${floor} people and invitations)` : ''}.`);
+    }
+    return seats;
+  }
+
+  /**
+   * A team subscribes as itself: its own Stripe customer and subscription, so billing survives members and owners changing.
+   * Per seat, the plan's price is charged for each seat bought; the payer may adjust the quantity on Stripe's page within the same limits.
+   */
+  async checkoutTeam(team: UserDoc, owner: UserDoc, plan: PlanId, opts: { seats?: number; floor?: number } = {}): Promise<string> {
     const stripe = this.need();
+    if (!this.perSeat && opts.seats !== undefined) throw new HttpError(400, 'not_per_seat', 'This server charges teams a flat price, not per seat.');
+    const floor = opts.floor ?? 1;
+    const seats = this.perSeat ? this.checkSeats(opts.seats ?? seatLimits(this.env, floor).min, floor) : 1;
     const cfg = (await this.settings.get()).plans[plan];
     if (!cfg?.stripePriceId || cfg.priceCents <= 0) throw new HttpError(400, 'plan_unavailable', 'This plan is not available for purchase.');
     if (team.billing?.subscriptionId && ['active', 'trialing', 'past_due'].includes(team.billing.status)) {
@@ -61,12 +79,45 @@ export class BillingService {
     const base = this.env.PUBLIC_URL.replace(/\/$/, '');
     const session = await stripe.checkout.sessions.create({
       mode: 'subscription', customer: customerId, client_reference_id: `team:${team._id}`,
-      line_items: [{ price: cfg.stripePriceId, quantity: 1 }],
+      line_items: [this.perSeat
+        ? { price: cfg.stripePriceId, quantity: seats, adjustable_quantity: { enabled: true, minimum: seatLimits(this.env, floor).min, maximum: seatLimits(this.env, floor).max } }
+        : { price: cfg.stripePriceId, quantity: 1 }],
       subscription_data: { metadata: { teamId: String(team._id), plan } },
       success_url: `${base}/account?checkout=success`, cancel_url: `${base}/pricing?checkout=cancelled`,
     });
     if (!session.url) throw new HttpError(502, 'billing_error', 'Could not start checkout.');
     return session.url;
+  }
+
+  /**
+   * Change how many seats a subscribed team pays for. Stripe prorates (an increase is charged now, a decrease credited on the
+   * next invoice) and an increase whose payment fails is refused, so nobody gets seats they have not paid for. Stripe's answer is
+   * applied at once; the webhook that follows carries the same quantity.
+   */
+  async changeTeamSeats(team: UserDoc, seats: unknown, floor: number): Promise<number> {
+    if (!this.perSeat) throw new HttpError(409, 'not_per_seat', 'This server charges teams a flat price, so there are no seats to change.');
+    const stripe = this.need();
+    const b = team.billing;
+    if (!b?.subscriptionId || !['active', 'trialing'].includes(b.status)) throw new HttpError(409, 'no_subscription', 'Subscribe the team first; seats can be changed once there is an active subscription.');
+    const wanted = this.checkSeats(seats, floor);
+    let current: Stripe.Subscription, updated: Stripe.Subscription;
+    try {
+      current = await stripe.subscriptions.retrieve(b.subscriptionId);
+      const item = current.items.data[0];
+      if (!item) throw new HttpError(502, 'billing_error', 'Could not read the team subscription.');
+      if (item.quantity === wanted) return wanted;
+      updated = await stripe.subscriptions.update(b.subscriptionId, { items: [{ id: item.id, quantity: wanted }], proration_behavior: 'create_prorations', payment_behavior: 'error_if_incomplete' });
+    } catch (e) {
+      if (e instanceof HttpError) throw e;
+      if ((e as { type?: string }).type === 'StripeCardError') throw new HttpError(402, 'payment_failed', 'The card on file was declined, so the seats were not added. Update the payment method from "Manage team billing" and try again.');
+      this.log.error({ err: e }, 'could not change team seats');
+      throw new HttpError(502, 'billing_error', 'Could not change the number of seats right now. Please try again.');
+    }
+    const q = updated.items.data[0]?.quantity ?? wanted;
+    team.set('billing.seats', q);
+    team.set('billing.eventAt', Math.floor(Date.now() / 1000));
+    await team.save();
+    return q;
   }
 
   async portalTeam(team: UserDoc): Promise<string> {
@@ -131,8 +182,13 @@ export class BillingService {
         const sub = event.data.object as Stripe.Subscription;
         // A subscription belongs to a team when it says so (metadata/customer), otherwise to a person. Both use the same plan mapping.
         const cust = typeof sub.customer === 'string' ? sub.customer : undefined;
-        const user = (await this.teamFor(sub.metadata, cust)) ?? (await this.userFor(sub.metadata, cust));
+        const team = await this.teamFor(sub.metadata, cust);
+        const user = team ?? (await this.userFor(sub.metadata, cust));
         if (!user) return void this.log.warn({ event: event.id }, 'subscription event for unknown user or team');
+        // Stripe does not promise delivery in order: an older event arriving late must not undo a newer one (for example a seat count).
+        if (typeof event.created === 'number' && event.created < (user.billing?.eventAt ?? 0)) {
+          return void this.log.info({ event: event.id, type: event.type }, 'stale subscription event ignored (a newer one was already applied)');
+        }
         const priceId = sub.items.data[0]?.price.id;
         const plans = (await this.settings.get()).plans;
         const matched = (['pro', 'business'] as const).find((p) => plans[p].stripePriceId && plans[p].stripePriceId === priceId);
@@ -145,6 +201,9 @@ export class BillingService {
         user.billing = {
           customerId: typeof sub.customer === 'string' ? sub.customer : user.billing?.customerId, subscriptionId: sub.id, status,
           plan: matched ?? user.billing?.plan, currentPeriodEnd: periodEnd ? new Date(periodEnd * 1000) : undefined, cancelAtPeriodEnd: sub.cancel_at_period_end,
+          eventAt: typeof event.created === 'number' ? event.created : user.billing?.eventAt,
+          // For a team the subscription's quantity is the seats it has paid for.
+          ...(team ? { seats: sub.items.data[0]?.quantity ?? user.billing?.seats } : {}),
         };
         // Entitlement follows subscription state. past_due keeps access while Stripe retries payment.
         if (ENDED.has(status)) user.plan = 'free';

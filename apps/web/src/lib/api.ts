@@ -84,7 +84,8 @@ export const api = {
     removeMember: (userId: string) => call<import('@pdftools/shared').TeamView>(`/api/teams/mine/members/${userId}`, { method: 'DELETE' }),
     leave: () => call<{ left: boolean }>('/api/teams/mine/leave', { method: 'POST' }),
     transfer: (userId: string) => call<import('@pdftools/shared').TeamView>('/api/teams/mine/transfer', json('POST', { userId })),
-    checkout: (plan: 'pro' | 'business') => call<{ url: string }>('/api/billing/team/checkout', json('POST', { plan })),
+    checkout: (plan: 'pro' | 'business', seats?: number) => call<{ url: string }>('/api/billing/team/checkout', json('POST', { plan, ...(seats !== undefined ? { seats } : {}) })),
+    setSeats: (seats: number) => call<{ seats: number }>('/api/billing/team/seats', json('POST', { seats })),
     portal: () => call<{ url: string }>('/api/billing/team/portal', { method: 'POST' }),
   },
   billing: {

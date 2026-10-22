@@ -51,6 +51,8 @@ const userSchema = new Schema({
     plan: String,
     currentPeriodEnd: Date,
     cancelAtPeriodEnd: Boolean,
+    /** `created` of the newest Stripe event applied, so an older one arriving late cannot undo a newer one. */
+    eventAt: Number,
   },
 }, { timestamps: true });
 
@@ -72,7 +74,7 @@ const teamSchema = new Schema({
   ownerId: { type: Schema.Types.ObjectId, required: true, index: true },
   /** What the team pays for. Follows the subscription: back to 'free' when it ends. */
   plan: { type: String, enum: ['free', 'pro', 'business'], default: 'free' },
-  billing: { customerId: String, subscriptionId: String, status: String, plan: String, currentPeriodEnd: Date, cancelAtPeriodEnd: Boolean },
+  billing: { customerId: String, subscriptionId: String, status: String, plan: String, currentPeriodEnd: Date, cancelAtPeriodEnd: Boolean, /** Seats paid for (the subscription's quantity). */ seats: Number, /** `created` of the newest Stripe event applied, so an older one arriving late cannot undo a newer one. */ eventAt: Number },
   /** Most operations one member may draw from the team's shared daily pool (unset: no limit). */
   memberDailyCap: { type: Number, min: 1 },
   /** Short-lived mutex that serialises seat-consuming changes (invitations); expires by itself if its holder dies. */

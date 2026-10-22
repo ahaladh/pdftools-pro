@@ -5,7 +5,7 @@ import { HttpError } from '../../utils/errors.js';
 import { requireUser } from '../auth/middleware.js';
 import type { BillingService } from './service.js';
 
-export function billingRoutes(billing: BillingService, opts: { requireVerifiedEmail?: boolean; teamOf?: (user: import('../auth/service.js').UserDoc) => Promise<{ team: import('../auth/service.js').UserDoc; role: string } | null> } = {}) {
+export function billingRoutes(billing: BillingService, opts: { requireVerifiedEmail?: boolean; teamOf?: (user: import('../auth/service.js').UserDoc) => Promise<{ team: import('../auth/service.js').UserDoc; role: string } | null>; /** People the team already has (members plus pending invitations): it cannot buy fewer seats. */ seatFloor?: (team: import('../auth/service.js').UserDoc) => Promise<number> } = {}) {
   const r = Router();
   r.post('/checkout', requireUser, wrap(async (req, res) => {
     if (opts.requireVerifiedEmail && !req.user.emailVerifiedAt) throw new HttpError(403, 'email_unverified', 'Please confirm your email address before upgrading. You can resend the confirmation email from your account page.');
@@ -21,8 +21,14 @@ export function billingRoutes(billing: BillingService, opts: { requireVerifiedEm
   };
   r.post('/team/checkout', requireUser, wrap(async (req, res) => {
     if (opts.requireVerifiedEmail && !req.user.emailVerifiedAt) throw new HttpError(403, 'email_unverified', 'Please confirm your email address before upgrading.');
-    const { plan } = z.object({ plan: z.enum(['pro', 'business']) }).parse(req.body);
-    ok(res, { url: await billing.checkoutTeam(await ownedTeam(req.user), req.user, plan) });
+    const { plan, seats } = z.object({ plan: z.enum(['pro', 'business']), seats: z.number().int().optional() }).parse(req.body);
+    const team = await ownedTeam(req.user);
+    ok(res, { url: await billing.checkoutTeam(team, req.user, plan, { seats, floor: (await opts.seatFloor?.(team)) ?? 1 }) });
+  }));
+  r.post('/team/seats', requireUser, wrap(async (req, res) => {
+    const { seats } = z.object({ seats: z.number() }).parse(req.body);
+    const team = await ownedTeam(req.user);
+    ok(res, { seats: await billing.changeTeamSeats(team, seats, (await opts.seatFloor?.(team)) ?? 1) });
   }));
   r.post('/team/portal', requireUser, wrap(async (req, res) => ok(res, { url: await billing.portalTeam(await ownedTeam(req.user)) })));
   r.post('/portal', requireUser, wrap(async (req, res) => ok(res, { url: await billing.portal(req.user) })));

@@ -99,7 +99,11 @@ export function TeamCard() {
   const leave = useMutation({ mutationFn: api.teams.leave, ...opts });
   const del = useMutation({ mutationFn: api.teams.remove, ...opts });
   const transfer = useMutation({ mutationFn: () => api.teams.transfer(heir), ...opts, onSuccess: async () => { setHeir(''); await opts.onSuccess(); } });
-  const checkout = useMutation({ mutationFn: (p: 'pro' | 'business') => api.teams.checkout(p), onSuccess: (r) => { window.location.href = r.url; }, onError: (e) => setErr(errText(e)) });
+  const [seatsWanted, setSeatsWanted] = useState('');
+  const [seatChange, setSeatChange] = useState('');
+  const plans = useQuery({ queryKey: ['plans'], queryFn: api.plans, staleTime: 5 * 60_000 });
+  const setSeatCount = useMutation({ mutationFn: (n: number) => api.teams.setSeats(n), ...opts, onSuccess: async () => { setSeatChange(''); await opts.onSuccess(); } });
+  const checkout = useMutation({ mutationFn: (v: { plan: 'pro' | 'business'; seats?: number }) => api.teams.checkout(v.plan, v.seats), onSuccess: (r) => { window.location.href = r.url; }, onError: (e) => setErr(errText(e)) });
   const portal = useMutation({ mutationFn: api.teams.portal, onSuccess: (r) => { window.location.href = r.url; }, onError: (e) => setErr(errText(e)) });
   if (!user) return null;
 
@@ -172,10 +176,31 @@ export function TeamCard() {
                   <p className="mt-1 text-sm text-slate-700">Subscription {team.subscription.status}{team.subscription.cancelAtPeriodEnd ? ' (ends at period end)' : ''}{team.subscription.currentPeriodEnd ? `, renews ${new Date(team.subscription.currentPeriodEnd).toLocaleDateString()}` : ''}.</p>
                 ) : <p className="mt-1 text-sm text-slate-700">No subscription yet.</p>}
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {cfg.data?.features.billing && team.plan === 'free' && <>
-                    <Button size="sm" disabled={checkout.isPending} onClick={() => checkout.mutate('pro')}>Subscribe team to Pro</Button>
-                    <Button size="sm" variant="secondary" disabled={checkout.isPending} onClick={() => checkout.mutate('business')}>Subscribe team to Business</Button>
-                  </>}
+                  {cfg.data?.features.billing && team.plan === 'free' && (() => {
+                    const sb = team.seatBilling;
+                    const n = seatsWanted === '' ? sb?.min : Number(seatsWanted);
+                    const okSeats = !sb || (Number.isInteger(n) && n! >= sb.min && n! <= sb.max);
+                    const price = (id: 'pro' | 'business') => { const p = plans.data?.find((x) => x.id === id); return p && p.priceCents > 0 && sb && n ? ` · ${new Intl.NumberFormat(undefined, { style: 'currency', currency: p.currency.toUpperCase() }).format((p.priceCents * n) / 100)}/month` : ''; };
+                    return <>
+                      {sb && (
+                        <div className="w-full">
+                          <Field label="Seats to buy" hint={`Billed per seat, each month. Between ${sb.min} and ${sb.max}${sb.min > 2 ? ` (your team already has ${sb.min} people and invitations)` : ''}. You can change this later and Stripe prorates it.`}>
+                            <TextInput className="!w-28" inputMode="numeric" value={seatsWanted === '' ? String(sb.min) : seatsWanted} onChange={(e) => setSeatsWanted(e.target.value)} />
+                          </Field>
+                        </div>
+                      )}
+                      <Button size="sm" disabled={checkout.isPending || !okSeats} onClick={() => checkout.mutate({ plan: 'pro', ...(sb ? { seats: n } : {}) })}>Subscribe team to Pro{price('pro')}</Button>
+                      <Button size="sm" variant="secondary" disabled={checkout.isPending || !okSeats} onClick={() => checkout.mutate({ plan: 'business', ...(sb ? { seats: n } : {}) })}>Subscribe team to Business{price('business')}</Button>
+                    </>;
+                  })()}
+                  {cfg.data?.features.billing && team.subscription && team.seatBilling && team.subscription.status !== 'canceled' && (
+                    <form className="flex w-full flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); const v = Number(seatChange); if (Number.isInteger(v)) setSeatCount.mutate(v); }}>
+                      <Field label="Seats" hint={`Now ${team.seats}. Between ${team.seatBilling.min} and ${team.seatBilling.max}: not fewer than the people you have. Stripe charges an increase now (prorated) and credits a decrease on the next invoice.`}>
+                        <TextInput className="!w-28" inputMode="numeric" value={seatChange === '' ? String(team.seats) : seatChange} onChange={(e) => setSeatChange(e.target.value)} />
+                      </Field>
+                      <Button type="submit" size="sm" disabled={setSeatCount.isPending || seatChange === '' || Number(seatChange) === team.seats || !Number.isInteger(Number(seatChange)) || Number(seatChange) < team.seatBilling.min || Number(seatChange) > team.seatBilling.max}>Update seats</Button>
+                    </form>
+                  )}
                   {cfg.data?.features.billing && team.subscription && <Button size="sm" variant="secondary" disabled={portal.isPending} onClick={() => portal.mutate()}>Manage team billing</Button>}
                   {!cfg.data?.features.billing && <p className="text-xs text-slate-600">Paid checkout is not enabled on this server.</p>}
                 </div>

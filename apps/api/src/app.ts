@@ -46,6 +46,13 @@ import { ConsoleMailer, SmtpMailer, UnconfiguredMailer, type Mailer } from './mo
 
 export interface AppDeps { env?: Env; store?: JobStore; log?: Logger; mailer?: Mailer; stripe?: StripeClient | null }
 
+/** Point the Stripe SDK at another host (Stripe's own `stripe-mock`, or a test double); unset means the real Stripe API. */
+function stripeHost(base: string | undefined): Stripe.StripeConfig | undefined {
+  if (!base) return undefined;
+  const u = new URL(base);
+  return { host: u.hostname, port: u.port || (u.protocol === 'https:' ? '443' : '80'), protocol: u.protocol === 'https:' ? 'https' : 'http' };
+}
+
 export async function createApp(deps: AppDeps = {}) {
   const env = deps.env ?? loadEnv();
   const log = deps.log ?? pino({ level: env.NODE_ENV === 'test' ? 'silent' : env.LOG_LEVEL, redact: ['req.headers.cookie', 'req.headers.authorization', 'res.headers["set-cookie"]'] });
@@ -82,7 +89,7 @@ export async function createApp(deps: AppDeps = {}) {
   const audit = new AuditService(log, accounts, metrics);
 
   const mailer: Mailer = deps.mailer ?? (env.SMTP_URL ? new SmtpMailer(env.SMTP_URL, env.MAIL_FROM) : env.NODE_ENV === 'production' ? new UnconfiguredMailer() : new ConsoleMailer(log));
-  const stripe: StripeClient | null = deps.stripe !== undefined ? deps.stripe : env.STRIPE_SECRET_KEY ? new Stripe(env.STRIPE_SECRET_KEY) : null;
+  const stripe: StripeClient | null = deps.stripe !== undefined ? deps.stripe : env.STRIPE_SECRET_KEY ? new Stripe(env.STRIPE_SECRET_KEY, stripeHost(env.STRIPE_API_BASE)) : null;
   const billing = new BillingService(env, settings, log, accounts ? stripe : null);
 
   const mongoJobs = jobStore instanceof MongoJobStore ? jobStore : null;
@@ -156,7 +163,7 @@ export async function createApp(deps: AppDeps = {}) {
     const cfg: PublicConfig = {
       brand: env.BRAND_NAME, maintenance: s.maintenance,
       limits: { maxFileMB: g.maxFileMB, maxFiles: g.maxFiles, maxPages: g.maxPages, retentionMinutes: g.retentionMinutes },
-      features: { accounts, billing: billing.enabled, adminTwoFactor: adminTwoFactorRequired(env) },
+      features: { accounts, billing: billing.enabled, adminTwoFactor: adminTwoFactorRequired(env), teamBilling: env.TEAM_BILLING },
     };
     ok(res, cfg);
   });
@@ -173,7 +180,7 @@ export async function createApp(deps: AppDeps = {}) {
   if (accounts) {
     app.use('/api/auth', limiter(600, 40), authRoutes(env, auth, securityKeys));
     app.use('/api/me', accountRoutes({ auth, securityKeys, jobs, usage, settings, refreshCookie: (res, s) => setRefreshCookie(env, res, s) }));
-    app.use('/api/billing', billingRoutes(billing, { requireVerifiedEmail: env.REQUIRE_VERIFIED_EMAIL, teamOf: (u) => teams.context(u) }));
+    app.use('/api/billing', billingRoutes(billing, { requireVerifiedEmail: env.REQUIRE_VERIFIED_EMAIL, teamOf: (u) => teams.context(u), seatFloor: (t) => teams.seatFloor(t) }));
     app.use('/api/teams', teamRoutes(teams));
     app.use('/api/admin', adminRoutes({ teams, env, jobs, jobStore: jobStore as MongoJobStore, settings, audit, auth }));
   } else {

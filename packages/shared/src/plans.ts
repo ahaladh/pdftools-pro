@@ -83,6 +83,8 @@ export interface TeamView {
   plan: PlanId;
   /** Seats the plan allows, and how many are taken by members plus pending invitations. */
   seats: number; seatsUsed: number;
+  /** Owner only, when the team pays per seat: the seat counts it may choose (never below the people it already has). */
+  seatBilling?: { min: number; max: number };
   members: TeamMemberView[];
   /** Pending invitations: owners and admins only. */
   invites: TeamInviteView[];

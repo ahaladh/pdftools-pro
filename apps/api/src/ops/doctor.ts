@@ -48,6 +48,15 @@ export function checkConfig(env: Env): DoctorCheck[] {
       add('security keys (WebAuthn)', problems.length ? (prod ? 'fail' : 'warn') : 'pass', problems.length ? problems.join('; ') : `RP ID ${wa.rpID}, origins ${wa.origins.join(', ')} (changing the RP ID later makes every registered key unusable)`);
     } catch { add('security keys (WebAuthn)', 'fail', 'PUBLIC_URL is not a valid URL, so security keys cannot work'); }
     if (env.TWO_FACTOR_KEY_PREVIOUS.length) add('two-factor key rotation', 'warn', `${env.TWO_FACTOR_KEY_PREVIOUS.length} previous key(s) configured: a rotation is in progress. Run \`rotate-2fa status\`; once everything is on the current key, remove TWO_FACTOR_KEY_PREVIOUS`);
+    {
+      const stripeOn = !!env.STRIPE_SECRET_KEY && !!env.STRIPE_WEBHOOK_SECRET;
+      const bad = env.TEAM_BILLING === 'per_seat' && env.TEAM_MIN_SEATS > env.TEAM_MAX_SEATS;
+      add('team billing', bad ? 'fail' : env.TEAM_BILLING === 'per_seat' && !stripeOn ? 'warn' : 'pass',
+        bad ? `TEAM_MIN_SEATS (${env.TEAM_MIN_SEATS}) is above TEAM_MAX_SEATS (${env.TEAM_MAX_SEATS}): no seat count would be valid`
+          : env.TEAM_BILLING === 'per_seat' ? (stripeOn ? `per seat (${env.TEAM_MIN_SEATS} to ${env.TEAM_MAX_SEATS} seats): the plan's Stripe price must be a per-seat price` : 'TEAM_BILLING=per_seat but Stripe is not configured: teams cannot subscribe')
+            : 'flat price; seats come from TEAM_SEATS_*');
+    }
+    if (env.STRIPE_API_BASE) add('stripe api base', prod ? 'fail' : 'warn', `STRIPE_API_BASE=${env.STRIPE_API_BASE}: Stripe calls go there instead of api.stripe.com (test double); never use in production`);
     add('admin two-step sign-in', adminTwoFactorRequired(env) ? 'pass' : prod ? 'warn' : 'pass', adminTwoFactorRequired(env) ? 'required for administrators' : prod ? 'REQUIRE_ADMIN_2FA=false: administrators can use the admin area with just a password (use only briefly, to recover)' : 'off (default outside production)');
     add('verified email for checkout', env.REQUIRE_VERIFIED_EMAIL ? 'pass' : prod ? 'warn' : 'pass', env.REQUIRE_VERIFIED_EMAIL ? 'required' : 'REQUIRE_VERIFIED_EMAIL is off: an unconfirmed address can start a paid checkout');
     add('bootstrap admin', env.ADMIN_PASSWORD ? 'warn' : 'pass', env.ADMIN_PASSWORD ? 'ADMIN_PASSWORD is still set: remove it after the first start' : 'not set');

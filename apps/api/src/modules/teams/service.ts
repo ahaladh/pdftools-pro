@@ -11,6 +11,7 @@ import { newOpaqueToken, sha256 } from '../auth/tokens.js';
 import type { SettingsService } from '../settings/service.js';
 import type { UsageStore } from '../usage/store.js';
 import { memberKey, poolKey } from './plan.js';
+import { seatLimits } from '../billing/seats.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Doc = any;
@@ -22,6 +23,18 @@ export class TeamService {
     private hooks: { cancelSubscription: (team: Doc) => Promise<void> }, private usage: UsageStore, private settings: SettingsService) {}
 
   /** What the plan allows: members plus pending invitations. A team that is not paying has room only for its owner. */
+  /**
+   * Seats a team has. Flat billing: from the plan (TEAM_SEATS_*). Per-seat billing: what the team pays for (the subscription's
+   * quantity); a paid team that has no recorded quantity yet keeps the plan's seats rather than dropping to one. No paid plan: one.
+   */
+  seatsOf(team: { plan: PlanId; billing?: { seats?: number | null } | null }): number {
+    if (team.plan === 'free') return 1;
+    if (this.env.TEAM_BILLING === 'per_seat') { const n = team.billing?.seats; if (typeof n === 'number' && Number.isInteger(n) && n >= 1) return n; }
+    return this.seatsFor(team.plan);
+  }
+  /** People a team already has: members plus pending invitations (it cannot buy fewer seats than this). */
+  seatFloor(team: Doc): Promise<number> { return this.seatsUsed(team._id); }
+
   seatsFor(plan: PlanId): number { return plan === 'business' ? this.env.TEAM_SEATS_BUSINESS : plan === 'pro' ? this.env.TEAM_SEATS_PRO : 1; }
 
   private async mine(userId: unknown): Promise<{ team: Doc; member: Doc } | null> {
@@ -56,7 +69,8 @@ export class TeamService {
     const b = team.billing;
     return {
       id: String(team._id), name: team.name, myRole: member.role, plan: team.plan,
-      seats: this.seatsFor(team.plan), seatsUsed: await this.seatsUsed(team._id),
+      seats: this.seatsOf(team), seatsUsed: await this.seatsUsed(team._id),
+      ...(member.role === 'owner' && this.env.TEAM_BILLING === 'per_seat' ? { seatBilling: seatLimits(this.env, await this.seatsUsed(team._id)) } : {}),
       members: members.map((m: Doc): TeamMemberView => { const u = users.get(String(m.userId)); return { userId: String(m.userId), email: u?.email ?? '', name: u?.name ?? '', role: m.role, joinedAt: new Date(m.createdAt).toISOString(), you: String(m.userId) === String(user._id) }; }),
       invites,
       ...(await this.poolView(team, members, canManage)),
@@ -137,7 +151,7 @@ export class TeamService {
     if (existing && (await MemberModel.exists({ teamId: team._id, userId: existing._id }))) throw new HttpError(409, 'already_member', 'That person is already in your team.');
     // Say "already invited" before "no seats": a pending invitation holds a seat itself, and that is the more useful message.
     if (await InviteModel.exists({ teamId: team._id, email, expiresAt: { $gt: new Date() } })) throw new HttpError(409, 'already_invited', 'That address already has a pending invitation. Cancel it first to send a new one.');
-    const seats = this.seatsFor(team.plan);
+    const seats = this.seatsOf(team);
     const token = newOpaqueToken();
     const invite = await this.withSeatLock(team._id, async () => {
       if ((await this.seatsUsed(team._id)) >= seats) {
@@ -182,7 +196,7 @@ export class TeamService {
     const team = await TeamModel.findById(preview.teamId);
     if (!team) throw fail();
     // The invitation already holds a seat, but the plan may have shrunk since (subscription ended): members only.
-    if ((await MemberModel.countDocuments({ teamId: team._id })) >= this.seatsFor(team.plan)) throw new HttpError(409, 'no_seats', 'This team has no free seats right now. Ask its owner to make room.');
+    if ((await MemberModel.countDocuments({ teamId: team._id })) >= this.seatsOf(team)) throw new HttpError(409, 'no_seats', 'This team has no free seats right now. Ask its owner to make room.');
     // Single use: exactly one caller can delete it.
     const claimed = await InviteModel.findOneAndDelete({ _id: preview._id });
     if (!claimed) throw fail();
@@ -260,7 +274,7 @@ export class TeamService {
       const pool = t.plan === 'free' ? undefined : { opsToday: await this.usage.ops(poolKey(String(t._id))), limit: (await this.settings.plan(t.plan)).dailyOps * Math.max(1, n) };
       return {
         id: String(t._id), name: t.name, plan: t.plan, owner: { id: String(t.ownerId), email: email.get(String(t.ownerId)) ?? '(deleted account)' },
-        members: n, seats: this.seatsFor(t.plan), seatsUsed: n + (pending.get(String(t._id)) ?? 0),
+        members: n, seats: this.seatsOf(t), seatsUsed: n + (pending.get(String(t._id)) ?? 0),
         ...(pool ? { pool: { ...pool, ...(t.memberDailyCap ? { memberCap: t.memberDailyCap } : {}) } } : {}),
         ...(b?.subscriptionId ? { subscription: { status: b.status, plan: b.plan, cancelAtPeriodEnd: b.cancelAtPeriodEnd } } : {}),
         createdAt: new Date(t.createdAt).toISOString(),

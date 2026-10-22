@@ -56,6 +56,21 @@ describe('doctor: production configuration review', () => {
     expect(off.level).toBe('warn'); expect(off.detail).toMatch(/just a password/);
     expect(by(checkConfig(loadEnv({ ...accounts, NODE_ENV: 'development' })), 'admin two-step sign-in').level).toBe('pass'); // off by default outside production
   });
+  it('reviews team billing: flat passes quietly, per-seat needs Stripe and sane limits, a Stripe test double is flagged', () => {
+    const accounts = { ...GOOD, MONGODB_URI: 'mongodb://x', JWT_ACCESS_SECRET: JWT };
+    const stripe = { STRIPE_SECRET_KEY: 'sk_test_x', STRIPE_WEBHOOK_SECRET: 'whsec_x', STRIPE_PRICE_PRO: 'price_x' };
+    expect(by(checkConfig(loadEnv(accounts)), 'team billing')).toMatchObject({ level: 'pass', detail: expect.stringContaining('flat') });
+    expect(by(checkConfig(loadEnv({ ...accounts, ...stripe, TEAM_BILLING: 'per_seat' })), 'team billing')).toMatchObject({ level: 'pass', detail: expect.stringMatching(/per seat \(2 to 100 seats\).*per-seat price/) });
+    const noStripe = by(checkConfig(loadEnv({ ...accounts, TEAM_BILLING: 'per_seat' })), 'team billing');
+    expect(noStripe.level).toBe('warn'); expect(noStripe.detail).toMatch(/Stripe is not configured/);
+    const bad = by(checkConfig(loadEnv({ ...accounts, ...stripe, TEAM_BILLING: 'per_seat', TEAM_MIN_SEATS: '30', TEAM_MAX_SEATS: '10' })), 'team billing');
+    expect(bad.level).toBe('fail'); expect(bad.detail).toMatch(/no seat count would be valid/);
+    expect(() => loadEnv({ ...accounts, TEAM_BILLING: 'monthly' })).toThrow(/TEAM_BILLING/);
+    // pointing Stripe elsewhere is for tests only
+    expect(checkConfig(loadEnv({ ...accounts, ...stripe })).find((c) => c.name === 'stripe api base')).toBeUndefined();
+    expect(by(checkConfig(loadEnv({ ...accounts, ...stripe, STRIPE_API_BASE: 'http://localhost:12111' })), 'stripe api base').level).toBe('fail'); // in production
+    expect(by(checkConfig(loadEnv({ ...accounts, ...stripe, NODE_ENV: 'development', STRIPE_API_BASE: 'http://localhost:12111' })), 'stripe api base').level).toBe('warn');
+  });
   it('requires Stripe key and webhook secret together; warns about leftovers', () => {
     expect(by(checkConfig(loadEnv({ ...GOOD, STRIPE_SECRET_KEY: 'sk_test_x' })), 'billing').level).toBe('fail');
     expect(by(checkConfig(loadEnv({ ...GOOD, STRIPE_SECRET_KEY: 'sk_test_x', STRIPE_WEBHOOK_SECRET: 'whsec_x' })), 'billing').level).toBe('pass');

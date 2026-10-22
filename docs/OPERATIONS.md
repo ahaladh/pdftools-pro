@@ -123,7 +123,7 @@ If **everyone** with 2FA is suddenly unable to sign in with a valid code, the en
 * *"My teammate cannot join."* The invitation only works for the signed-in account whose **confirmed** email matches the address it was sent to (look for `team.invited` and a failed accept in the log); a person can be in only one team at a time; and there must be a free seat.
 * *"Our team says it hit the limit but each person only used a few."* On a paid team the daily operations are shared (`dailyOps x members`); the Team card shows the bar and, to owners and admins, who used what. It resets at midnight UTC. Adding people raises it at once; a member whose *own* plan is better uses their own allowance and neither draws from nor feeds the pool. If the team's subscription lapsed the pool is gone and everyone is back on their own limit. A person who is refused with "limits each person to N" has hit the team's per-person limit (Team card → *Daily limit per person*, owners and admins), not the pool.
 * *"The owner left the company / is unreachable."* Admin console → **Teams** → open the team → **Make owner** on one of its members. The new owner must have a **confirmed email** (they take over billing); the old owner stays on as an admin; the action is audited with your name (`admin.team_ownership_transferred`). **Verify who is asking first**: this hands someone control of a paid subscription, so confirm they are who they say (ideally through someone else in the team) before doing it. The same panel has **Delete team** (cancels the subscription first; if Stripe cannot be reached the team is kept) for abuse or abandoned teams.
-* *Seats do not match the plan after a price change:* seats come from `TEAM_SEATS_*`, not from Stripe. Lowering them never evicts members; it only blocks new invitations.
+* *Seats do not match what the team pays for:* with `TEAM_BILLING=flat` seats come from `TEAM_SEATS_*`, not from Stripe; with `per_seat` they are the subscription's quantity (see *Per-seat team billing*). Lowering them never evicts members; it only blocks new invitations.
 
 ### Storage
 
@@ -176,6 +176,24 @@ Authenticator secrets are encrypted at rest with `TWO_FACTOR_KEY` (or `JWT_ACCES
 Anything the tool reports as *cannot be opened* is left untouched. Add the key that sealed it to `TWO_FACTOR_KEY_PREVIOUS` and run again; if that key is gone for good, an administrator resets those users' two-step sign-in (Users tab), after which they set it up again. The tool never prints keys, secrets or emails, only counts and user ids. Back up the database before the first run (see *Backups*).
 
 **To rotate `JWT_ACCESS_SECRET` when `TWO_FACTOR_KEY` was never set:** first set `TWO_FACTOR_KEY` to the *current* JWT secret value (nothing needs re-sealing: it is the same key) and only then change the JWT secret, or every authenticator secret becomes unreadable.
+
+## Per-seat team billing
+
+`TEAM_BILLING=per_seat` makes a team's seats equal the **quantity of its Stripe subscription**: the plan's price is charged per seat, per month. Decisions built in (change them in code if your pricing differs): seats may be between `TEAM_MIN_SEATS` (default 2) and `TEAM_MAX_SEATS` (default 100); a team cannot buy fewer seats than it has people (members plus pending invitations); Stripe prorates changes (`create_prorations`: an increase is charged now, a decrease is credited on the next invoice); an increase whose payment fails is refused (`error_if_incomplete`), so nobody gets seats that were not paid for; and seats can only be changed while the subscription is `active` or `trialing`, not `past_due`.
+
+**Set up in Stripe:** the Pro and Business prices must be *per-unit recurring* prices (a flat-fee price would charge the same whatever the quantity). Personal subscriptions use the same price with quantity 1, so one price per plan serves both. In the customer portal configuration, either leave "update quantity" off (seats are then changed from the Team card, where the floor is enforced) or accept that a portal change arrives by webhook and is honoured even below the team's headcount (the team keeps everyone but cannot invite more).
+
+**Where the truth lives:** Stripe's quantity, delivered by `customer.subscription.*` webhooks. Stripe does not guarantee order, so each event's `created` time is stored and an older event arriving late is ignored (so a stale quantity cannot roll seats back). After the owner changes seats from the Team card the new count shows at once from Stripe's reply; the webhook that follows carries the same number.
+
+**Switching an existing deployment from flat to per-seat.** Do this in order, or teams shrink to the quantity Stripe has (usually 1) and can no longer invite anyone (nobody is removed):
+1. Change each team subscription's quantity in Stripe to the seats that team should have (it is a per-seat price, so this changes what they are charged: decide that deliberately and tell them).
+2. Set `TEAM_BILLING=per_seat`, deploy, run `doctor`.
+3. A paid team that has no recorded quantity yet keeps the plan's `TEAM_SEATS_*` until Stripe's next event for it, which sets the real number.
+Going back to `flat` returns seats to `TEAM_SEATS_*` at once.
+
+**Support:** the admin console shows each team's seats and subscription state. A team that says it paid for more seats than it has: compare Stripe's quantity with the Team card; if they differ, `customer.subscription.updated` events are not arriving (check the webhook endpoint in Stripe and the API log for `stale subscription event ignored` or signature errors).
+
+**Not verified against real Stripe:** the request shapes are checked against Stripe's own TypeScript types and, in the browser test, as the real SDK sends them over HTTP to a fake server, but nothing here has talked to Stripe itself. Before launch run one real test-mode cycle (checkout with 3 seats, raise to 5, lower to 4, decline a card with `4000 0000 0000 0341`) and compare the invoices with what the Team card says. `STRIPE_API_BASE` also lets you point the SDK at Stripe's `stripe-mock` for contract checks.
 
 ## Secret rotation
 
