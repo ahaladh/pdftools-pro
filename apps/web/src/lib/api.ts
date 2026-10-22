@@ -75,6 +75,7 @@ export const api = {
     mine: () => call<import('@pdftools/shared').TeamView | null>('/api/teams/mine'),
     create: (name: string) => call<import('@pdftools/shared').TeamView>('/api/teams', json('POST', { name })),
     rename: (name: string) => call<import('@pdftools/shared').TeamView>('/api/teams/mine', json('PATCH', { name })),
+    setMemberCap: (memberDailyCap: number | null) => call<import('@pdftools/shared').TeamView>('/api/teams/mine/settings', json('PATCH', { memberDailyCap })),
     remove: () => call<{ deleted: boolean }>('/api/teams/mine', { method: 'DELETE' }),
     invite: (email: string, role: 'admin' | 'member') => call<import('@pdftools/shared').TeamView>('/api/teams/mine/invites', json('POST', { email, role })),
     cancelInvite: (id: string) => call<import('@pdftools/shared').TeamView>(`/api/teams/mine/invites/${encodeURIComponent(id)}`, { method: 'DELETE' }),

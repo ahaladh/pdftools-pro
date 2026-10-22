@@ -43,17 +43,14 @@ const rotateOnce = async (page: Page) => {
   await page.getByRole('button', { name: 'Rotate PDF' }).click();
 };
 
-test('a paid team shares one allowance: one person can use the whole pool, and then everyone is stopped, with the numbers shown', async ({ browser }) => {
-  test.setTimeout(150_000);
+/** Two people in a paid team (Stripe is not part of this stack, as in the teams spec: plan and membership are set directly). */
+async function paidTeam(browser: Browser) {
   const owner = await person(browser, 'pool-owner');
-  const mon = watchConsole(owner.page);
   await owner.page.goto('/account');
   await owner.page.getByLabel('What should the team be called?').fill('Acme Design');
   await owner.page.getByRole('button', { name: 'Create team' }).click();
   await expect(owner.page.getByRole('heading', { name: 'Acme Design' })).toBeVisible();
   const colleague = await person(browser, 'pool-colleague');
-
-  // Stripe is not part of this stack (as in the teams spec): set the plan and the membership directly.
   await db(async (c) => {
     const o = await c.collection('users').findOne({ email: owner.email });
     const m = await c.collection('users').findOne({ email: colleague.email });
@@ -61,6 +58,13 @@ test('a paid team shares one allowance: one person can use the whole pool, and t
     await c.collection('teams').updateOne({ _id: team!._id }, { $set: { plan: 'pro' } });
     await c.collection('teammembers').insertOne({ teamId: team!._id, userId: m!._id, role: 'member', createdAt: new Date(), updatedAt: new Date() });
   });
+  return { owner, colleague };
+}
+
+test('a paid team shares one allowance: one person can use the whole pool, and then everyone is stopped, with the numbers shown', async ({ browser }) => {
+  test.setTimeout(150_000);
+  const { owner, colleague } = await paidTeam(browser);
+  const mon = watchConsole(owner.page);
 
   // the colleague alone uses the whole shared allowance (2 each x 2 people = 4): twice what Pro gives one person
   for (let i = 0; i < 2 * PER_MEMBER; i++) {
@@ -87,13 +91,13 @@ test('a paid team shares one allowance: one person can use the whole pool, and t
   await expect(colleague.page.getByText(/You have used 4 of it today/)).toBeVisible();
 
   // the team card: the pool bar, and the owner (not the colleague) sees who used what
-  const pool = owner.page.getByLabel('Shared allowance');
+  const pool = owner.page.getByLabel('Shared allowance', { exact: true });
   await expect(pool).toContainText('Shared allowance today');
   await expect(pool).toContainText('4 / 4');
   await expect(owner.page.getByLabel(`Operations used today by ${colleague.email}`)).toHaveText('4 today');
   await expect(owner.page.getByLabel(`Operations used today by ${owner.email}`)).toHaveText('0 today');
   await colleague.page.reload();
-  await expect(colleague.page.getByLabel('Shared allowance')).toContainText('4 / 4');
+  await expect(colleague.page.getByLabel('Shared allowance', { exact: true })).toContainText('4 / 4');
   await expect(colleague.page.getByLabel(`Operations used today by ${owner.email}`)).toHaveCount(0);
   await axe(owner.page, 'pooled team card');
 
@@ -104,5 +108,43 @@ test('a paid team shares one allowance: one person can use the whole pool, and t
 
   expect(mon.problems.filter((p) => !/status of 429/.test(p))).toEqual([]);
   expect(await mon.cspViolations()).toEqual([]);
+  await owner.ctx.close(); await colleague.ctx.close();
+});
+
+test('an owner can limit what one person draws from the pool; the limit is explained to them and the others are unaffected', async ({ browser }) => {
+  test.setTimeout(120_000);
+  const { owner, colleague } = await paidTeam(browser);
+  await owner.page.goto('/account');
+  const pool = owner.page.getByLabel('Shared allowance', { exact: true });
+  await expect(pool).toBeVisible();
+  // an invalid value cannot be saved
+  await pool.getByLabel('Daily limit per person').fill('0');
+  await expect(pool.getByRole('button', { name: 'Save limit' })).toBeDisabled();
+  await pool.getByLabel('Daily limit per person').fill('1');
+  await pool.getByRole('button', { name: 'Save limit' }).click();
+  await expect(pool.getByText('Currently 1.')).toBeVisible();
+  await axe(owner.page, 'pool limit control');
+
+  // the colleague gets one operation and is then told it is their limit, not the team's
+  await rotateOnce(colleague.page);
+  await expect(colleague.page.getByRole('heading', { name: 'Your file is ready' })).toBeVisible({ timeout: 30_000 });
+  await colleague.page.goto('/account');
+  await expect(colleague.page.getByText(/Your team limits each person to 1 a day/)).toBeVisible({ timeout: 15_000 });
+  await expect(colleague.page.getByText('1 / 4').first()).toBeVisible();
+  await rotateOnce(colleague.page);
+  await expect(colleague.page.getByRole('alert')).toContainText(/Acme Design.*limits each person to 1 operations a day/);
+  // the team card shows members the limit as text, with no control
+  await colleague.page.goto('/account');
+  await expect(colleague.page.getByLabel('Shared allowance', { exact: true })).toContainText('Your team limits each person to 1 operations a day.');
+  await expect(colleague.page.getByLabel('Daily limit per person')).toHaveCount(0);
+
+  // the owner, who has used nothing, is not affected; and removing the limit lets the colleague carry on
+  await rotateOnce(owner.page);
+  await expect(owner.page.getByRole('heading', { name: 'Your file is ready' })).toBeVisible({ timeout: 30_000 });
+  await owner.page.goto('/account');
+  await owner.page.getByLabel('Shared allowance', { exact: true }).getByRole('button', { name: 'Remove limit' }).click();
+  await expect(owner.page.getByLabel('Shared allowance', { exact: true }).getByText('Optional. Without one')).toBeVisible();
+  await rotateOnce(colleague.page);
+  await expect(colleague.page.getByRole('heading', { name: 'Your file is ready' })).toBeVisible({ timeout: 30_000 });
   await owner.ctx.close(); await colleague.ctx.close();
 });

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { acceptInviteSchema, createTeamSchema, inviteSchema, memberRoleSchema, renameTeamSchema, transferSchema } from '@pdftools/shared';
+import { acceptInviteSchema, createTeamSchema, inviteSchema, memberRoleSchema, renameTeamSchema, teamSettingsSchema, transferSchema } from '@pdftools/shared';
 import { ok, wrap } from '../../middleware/common.js';
 import { requireUser } from '../auth/middleware.js';
 import type { TeamService } from './service.js';
@@ -11,6 +11,7 @@ export function teamRoutes(teams: TeamService) {
   r.get('/mine', wrap(async (req, res) => ok(res, await teams.view(req.user))));
   r.post('/', wrap(async (req, res) => { await teams.create(req, req.user, createTeamSchema.parse(req.body).name); ok(res, await teams.view(req.user), 201); }));
   r.patch('/mine', wrap(async (req, res) => { await teams.rename(req, req.user, renameTeamSchema.parse(req.body).name); ok(res, await teams.view(req.user)); }));
+  r.patch('/mine/settings', wrap(async (req, res) => { await teams.setMemberCap(req, req.user, teamSettingsSchema.parse(req.body).memberDailyCap); ok(res, await teams.view(req.user)); }));
   r.delete('/mine', wrap(async (req, res) => { await teams.deleteTeam(req, req.user); ok(res, { deleted: true }); }));
 
   r.post('/mine/invites', wrap(async (req, res) => { const b = inviteSchema.parse(req.body); await teams.invite(req, req.user, b.email, b.role); ok(res, await teams.view(req.user), 201); }));

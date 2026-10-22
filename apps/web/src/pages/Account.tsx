@@ -68,7 +68,7 @@ export default function Account() {
             <>
               <div className="mt-4"><div className="mb-1 flex justify-between text-sm"><span>{u.pool ? 'Team operations today' : 'Operations today'}</span><span>{u.today.ops} / {u.today.limit}</span></div>
                 <div className="h-2 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-valuenow={u.today.ops} aria-valuemin={0} aria-valuemax={u.today.limit} aria-label="Operations used today"><div className={`h-full rounded-full ${pct >= 90 ? 'bg-amber-500' : 'bg-brand-600'}`} style={{ width: `${pct}%` }} /></div></div>
-              {u.pool && <p className="mt-2 text-xs text-slate-600">Shared with your team “{u.pool.team}” ({u.pool.members} member{u.pool.members === 1 ? '' : 's'}): everyone draws from the same allowance. You have used {u.pool.yourOpsToday} of it today.</p>}
+              {u.pool && <p className="mt-2 text-xs text-slate-600">Shared with your team “{u.pool.team}” ({u.pool.members} member{u.pool.members === 1 ? '' : 's'}): everyone draws from the same allowance. You have used {u.pool.yourOpsToday} of it today.{u.pool.yourCap ? ` Your team limits each person to ${u.pool.yourCap} a day.` : ''}</p>}
               <dl className="mt-4 grid grid-cols-2 gap-2 text-sm">
                 <div><dt className="text-slate-500">Max file size</dt><dd>{u.limits.maxFileMB} MB</dd></div>
                 <div><dt className="text-slate-500">Max pages</dt><dd>{u.limits.maxPages}</dd></div>

@@ -4,6 +4,7 @@ import { HttpError } from '../../utils/errors.js';
 import type { JobStore } from '../jobs/types.js';
 import type { SettingsService } from '../settings/service.js';
 import type { UsageStore } from './store.js';
+import { memberKey } from '../teams/plan.js';
 
 /** Plan resolution and enforcement. All limits come from settings; nothing is hardcoded here. */
 export class Entitlements {
@@ -32,6 +33,13 @@ export class Entitlements {
       const limit = plan.dailyOps * req.pool.members;
       if (used + inFlight >= limit) {
         throw new HttpError(429, 'quota_exceeded', `Your team “${req.pool.teamName}” has used today's shared allowance of ${limit} operations (${plan.dailyOps} for each of its ${req.pool.members} member${req.pool.members === 1 ? '' : 's'}). It resets tomorrow; a team owner can add people to raise it.`);
+      }
+      // The team may also limit what any one person can draw from the pool in a day.
+      if (req.pool.memberCap) {
+        const yours = await this.usage.ops(memberKey(req.pool.teamId, String(req.user?._id)));
+        if (yours + mine >= req.pool.memberCap) {
+          throw new HttpError(429, 'member_cap_reached', `Your team “${req.pool.teamName}” limits each person to ${req.pool.memberCap} operations a day, and you have reached it. It resets tomorrow; a team owner can raise the limit.`);
+        }
       }
       return plan;
     }

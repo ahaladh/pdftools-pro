@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadEnv } from './config/env.js';
 import { createApp } from './app.js';
-import { disconnectDb, MemberModel, TeamModel, UsageModel, UserModel } from './db/models.js';
+import { disconnectDb, AuditModel, MemberModel, TeamModel, UsageModel, UserModel } from './db/models.js';
 import { CaptureMailer } from './modules/mail/mailer.js';
 import { poolKey, memberKey } from './modules/teams/plan.js';
 import { Entitlements } from './modules/usage/entitlements.js';
@@ -200,6 +200,91 @@ describe('the check itself (unit)', () => {
   it('concurrency stays personal: someone else\'s running jobs never stop you, your own do', async () => {
     await expect(mk(0, { 'u:b': 2, 'u:c': 2 }).check(pooled(), 'merge')).resolves.toBeTruthy();
     await expect(mk(0, { 'u:a': 2 }).check(pooled(), 'merge')).rejects.toMatchObject({ code: 'too_many_jobs' });
+  });
+});
+
+describe('a per-person limit inside the pool', () => {
+  const setCap = (u: U, cap: unknown) => request(ctx.app).patch('/api/teams/mine/settings').set(bearer(u.token)).send({ memberDailyCap: cap });
+
+  it('stops one person at their limit while the rest of the pool stays available to everyone else', async () => {
+    const t = await team('pro', 2); // pool 9
+    const [a, b] = t.members as [U, U];
+    expect((await setCap(t.owner, 2)).status).toBe(200);
+    expect((await run(a)).status).toBe(202); expect((await run(a)).status).toBe(202);
+    const over = await run(a);
+    expect(over.status).toBe(429); expect(over.body.error.code).toBe('member_cap_reached');
+    expect(over.body.error.message).toMatch(/Acme Design.*limits each person to 2 operations a day/);
+    for (const who of [b, t.owner]) expect((await run(who)).status, who.email).toBe(202); // others are not affected
+    expect(await ops(poolKey(t.teamId))).toBe(4);
+    expect(await ops(memberKey(t.teamId, a.id))).toBe(2);
+  });
+
+  it('the pool running out is reported as the pool, not as the person\'s limit', async () => {
+    const t = await team('pro', 2); // pool 9, each capped at 3: exactly fills it
+    const [a, b] = t.members as [U, U];
+    await setCap(t.owner, 3);
+    for (const who of [a, b, t.owner]) for (let i = 0; i < 3; i++) expect((await run(who)).status).toBe(202);
+    const r = await run(a);
+    expect(r.status).toBe(429); expect(r.body.error.code).toBe('quota_exceeded'); expect(r.body.error.message).toMatch(/shared allowance of 9/);
+  });
+
+  it('changing or removing it takes effect at once, for the owner as well, and an admin may change it', async () => {
+    const t = await team('pro', 2);
+    const [a, b] = t.members as [U, U];
+    await setCap(t.owner, 1);
+    expect((await run(t.owner)).status).toBe(202);
+    expect((await run(t.owner)).body.error.code).toBe('member_cap_reached'); // the owner is a person like any other
+    expect((await setCap(t.owner, 3)).status).toBe(200);
+    expect((await run(t.owner)).status).toBe(202);
+    await MemberModel.updateOne({ userId: a.id }, { role: 'admin' });
+    expect((await setCap(a, null)).status).toBe(200); // an admin removes it
+    expect((await teamView(b)).pool.memberCap).toBeUndefined();
+    for (let i = 0; i < 4; i++) expect((await run(t.owner)).status).toBe(202); // well past the old limits
+  });
+
+  it('only owners and admins may set it, it must be a whole number of at least 1, and a free team has nothing to limit', async () => {
+    const t = await team('pro', 1);
+    const [m] = t.members as [U];
+    expect((await setCap(m, 2)).status).toBe(403);
+    expect((await teamView(t.owner)).pool.memberCap).toBeUndefined();
+    for (const bad of [0, -1, 1.5, '3', undefined, 2_000_000]) expect((await setCap(t.owner, bad)).status, String(bad)).toBe(400);
+    const loner = await signup();
+    expect((await setCap(loner, 2)).status).toBe(404);
+    expect((await request(ctx.app).patch('/api/teams/mine/settings').send({ memberDailyCap: 2 })).status).toBe(401);
+    const free = await team('free');
+    const refused = await setCap(free.owner, 2);
+    expect(refused.status).toBe(409); expect(refused.body.error.code).toBe('no_pool');
+    expect((await setCap(free.owner, null)).status).toBe(200); // clearing is always fine
+  });
+
+  it('is shown to the people it applies to, to the admin console, and recorded in the audit log', async () => {
+    const t = await team('pro', 1);
+    const [a] = t.members as [U];
+    await setCap(t.owner, 4);
+    expect((await teamView(a)).pool).toMatchObject({ memberCap: 4 });
+    expect((await usage(a)).pool).toMatchObject({ yourCap: 4 });
+    const adminToken = (await request(ctx.app).post('/api/auth/login').send({ email: 'root@example.com', password: 'admin-password-123' })).body.data.accessToken as string;
+    const detail = await request(ctx.app).get(`/api/admin/teams/${t.teamId}`).set(bearer(adminToken));
+    expect(detail.body.data.pool.memberCap).toBe(4);
+    const entry = await AuditModel.findOne({ action: 'team.settings_changed', target: `t:${t.teamId}` }).lean();
+    expect(entry).toMatchObject({ actor: `u:${t.owner.id}`, meta: { memberDailyCap: 4 } });
+  });
+
+  it('does not touch people the pool does not apply to', async () => {
+    const t = await team('pro', 1);
+    const [a] = t.members as [U];
+    await setCap(t.owner, 1);
+    await UserModel.updateOne({ _id: a.id }, { plan: 'business' });
+    for (let i = 0; i < 3; i++) expect((await run(a)).status).toBe(202);
+    expect((await usage(a)).pool).toBeUndefined();
+  });
+
+  it('counts a person\'s own running jobs against their limit (unit)', async () => {
+    const settings = { get: async () => ({ maintenance: false, disabledTools: [], plans: { pro: { id: 'pro', name: 'Pro', dailyOps: 100, maxConcurrentJobs: 5, blockedTools: [] } } }) } as never;
+    const mk = (yours: number, mine: number) => new Entitlements(settings, { ops: async (k: string) => (k.startsWith('tm:') ? yours : 0) } as never, { activeCount: async (o: string) => (o === 'u:a' ? mine : 0) } as never);
+    const req = { user: { _id: 'a', plan: 'pro' }, effectivePlan: 'pro', owner: 'u:a', usageKeys: [], pool: { teamId: 't', teamName: 'Acme', key: 't:t', members: 2, memberIds: ['a', 'b'], memberCap: 3 } } as never;
+    await expect(mk(2, 1).check(req, 'merge')).rejects.toMatchObject({ code: 'member_cap_reached' });
+    await expect(mk(2, 0).check(req, 'merge')).resolves.toBeTruthy();
   });
 });
 

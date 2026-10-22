@@ -35,6 +35,25 @@ function CreateTeam() {
   );
 }
 
+/** Owners and admins can limit how much of the shared allowance any one person may use per day; everyone else just sees the limit. */
+function MemberCap({ team, actions, canManage }: { team: TeamView; actions: ReturnType<typeof useTeamActions>; canManage: boolean }) {
+  const cap = team.pool?.memberCap;
+  const [value, setValue] = useState(cap ? String(cap) : '');
+  const save = useMutation({ mutationFn: (v: number | null) => api.teams.setMemberCap(v), ...actions.opts, onSuccess: async () => { await actions.opts.onSuccess(); } });
+  const n = Number(value);
+  const valid = value.trim() !== '' && Number.isInteger(n) && n >= 1;
+  if (!canManage) return cap ? <p className="mt-1.5 text-xs text-slate-600">Your team limits each person to {cap} operations a day.</p> : null;
+  return (
+    <form className="mt-3 flex flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); if (valid) save.mutate(n); }}>
+      <Field label="Daily limit per person" hint={cap ? `Currently ${cap}.` : 'Optional. Without one, a single person can use the whole shared allowance.'}>
+        <TextInput className="!w-28" inputMode="numeric" value={value} onChange={(e) => setValue(e.target.value)} placeholder="No limit" />
+      </Field>
+      <Button type="submit" size="sm" disabled={!valid || save.isPending || n === cap}>Save limit</Button>
+      {cap && <Button type="button" size="sm" variant="ghost" disabled={save.isPending} onClick={() => { setValue(''); save.mutate(null); }}>Remove limit</Button>}
+    </form>
+  );
+}
+
 function Members({ team, actions }: { team: TeamView; actions: ReturnType<typeof useTeamActions> }) {
   const { opts } = actions;
   const isOwner = team.myRole === 'owner';
@@ -116,6 +135,7 @@ export function TeamCard() {
                 <div className="flex justify-between text-sm"><span className="font-medium">Shared allowance today</span><span>{team.pool.opsToday} / {team.pool.limit}</span></div>
                 <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-slate-200" role="progressbar" aria-label="Team operations used today" aria-valuenow={team.pool.opsToday} aria-valuemin={0} aria-valuemax={team.pool.limit}><div className={`h-full rounded-full ${team.pool.opsToday >= team.pool.limit * 0.9 ? 'bg-red-500' : 'bg-brand-600'}`} style={{ width: `${Math.min(100, Math.round((team.pool.opsToday / Math.max(1, team.pool.limit)) * 100))}%` }} /></div>
                 <p className="mt-1.5 text-xs text-slate-600">{team.pool.perMember} for each of {team.members.length} member{team.members.length === 1 ? '' : 's'}, shared: people who use less leave room for people who use more. Anyone whose own plan is better uses their own allowance instead. Resets daily.</p>
+                <MemberCap team={team} actions={actions} canManage={canManage} />
               </div>
             )}
             {team.plan === 'free' && <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">This team is on the free plan, so there is room for just you. {isOwner ? 'Subscribe the team to share a paid plan with colleagues.' : 'Ask the owner to subscribe the team.'}</p>}

@@ -66,7 +66,7 @@ export interface AdminTeamRow {
   owner: { id: string; email: string };
   members: number; seats: number; /** Members plus pending invitations. */ seatsUsed: number;
   /** Today's shared allowance (paid plans only). */
-  pool?: { opsToday: number; limit: number };
+  pool?: { opsToday: number; limit: number; memberCap?: number };
   subscription?: { status: string; plan?: string; cancelAtPeriodEnd?: boolean };
   createdAt: string;
 }
@@ -90,7 +90,7 @@ export interface TeamView {
    * Today's shared allowance on a paid team plan: `dailyOps x members`. Members whose own plan is better use their own
    * allowance instead and do not draw from it. Absent for a team without a paid plan.
    */
-  pool?: { opsToday: number; limit: number; perMember: number; /** Owners and admins only. */ byMember?: { userId: string; ops: number }[] };
+  pool?: { opsToday: number; limit: number; perMember: number; /** Most operations any one person may draw from the pool in a day (unset: no limit). */ memberCap?: number; /** Owners and admins only. */ byMember?: { userId: string; ops: number }[] };
   /** Billing state: owner only. */
   subscription?: { status: string; plan: PlanId; currentPeriodEnd?: string; cancelAtPeriodEnd?: boolean };
   createdAt: string;
@@ -110,7 +110,7 @@ export interface UsageView {
   limits: { maxFileMB: number; maxPages: number; maxFiles: number; maxConcurrentJobs: number; retentionMinutes: number };
   last30Days: { day: string; ops: number }[];
   /** Present when this person's operations are counted against their team's shared pool (then `today` and `last30Days` are the pool's). */
-  pool?: { team: string; members: number; yourOpsToday: number };
+  pool?: { team: string; members: number; yourOpsToday: number; /** The team's per-person daily limit, if it set one. */ yourCap?: number };
 }
 
 export const registerSchema = z.object({
@@ -139,6 +139,8 @@ export const securityKeyLoginOptionsSchema = z.object({ challenge: z.string().mi
 export const securityKeyLoginSchema = z.object({ challenge: z.string().min(20).max(2000), response: webauthnResponse });
 export const createTeamSchema = z.object({ name: z.string().trim().min(2, 'Use at least 2 characters').max(60) });
 export const renameTeamSchema = createTeamSchema;
+/** `null` removes the limit. */
+export const teamSettingsSchema = z.object({ memberDailyCap: z.number().int('Use a whole number').min(1, 'Use at least 1').max(1_000_000).nullable() });
 export const inviteSchema = z.object({ email: z.string().trim().toLowerCase().email().max(254), role: z.enum(['admin', 'member']).default('member') });
 export const acceptInviteSchema = z.object({ token: z.string().min(20).max(200) });
 export const memberRoleSchema = z.object({ role: z.enum(['admin', 'member']) });

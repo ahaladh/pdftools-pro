@@ -75,7 +75,7 @@ export function accountRoutes(deps: { auth: AuthService; securityKeys: SecurityK
       today: { ops: series.find((d) => d.day === today())?.ops ?? 0, limit: plan.dailyOps * (pool?.members ?? 1) },
       limits: { maxFileMB: plan.maxFileMB, maxPages: plan.maxPages, maxFiles: plan.maxFiles, maxConcurrentJobs: plan.maxConcurrentJobs, retentionMinutes: plan.retentionMinutes },
       last30Days: series,
-      ...(pool ? { pool: { team: pool.teamName, members: pool.members, yourOpsToday: await deps.usage.ops(memberKey(pool.teamId, String(req.user._id))) } } : {}),
+      ...(pool ? { pool: { team: pool.teamName, members: pool.members, yourOpsToday: await deps.usage.ops(memberKey(pool.teamId, String(req.user._id))), ...(pool.memberCap ? { yourCap: pool.memberCap } : {}) } } : {}),
     };
     ok(res, view);
   }));

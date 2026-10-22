@@ -65,6 +65,16 @@ export class TeamService {
     };
   }
 
+  /** Limit what any one member may draw from the shared pool per day (`null` removes the limit). Owners and admins only. */
+  async setMemberCap(req: Request, user: UserDoc, cap: number | null) {
+    const { team, member } = await this.need(user);
+    this.requireRole(member, ['owner', 'admin'], 'change the team\'s limits');
+    if (cap !== null && team.plan === 'free') throw new HttpError(409, 'no_pool', 'The shared allowance exists only on a paid team plan, so there is nothing to limit yet.');
+    if (cap === null) team.memberDailyCap = undefined; else team.memberDailyCap = cap;
+    await team.save();
+    await this.audit.record(`u:${user._id}`, 'team.settings_changed', { req, target: `t:${team._id}`, meta: { memberDailyCap: cap } });
+  }
+
   /** The shared daily allowance of a team on a paid plan (see PoolContext). Owners and admins also get each member's share. */
   private async poolView(team: Doc, members: Doc[], canManage: boolean): Promise<{ pool?: NonNullable<TeamView['pool']> }> {
     if (team.plan === 'free') return {};
@@ -72,6 +82,7 @@ export class TeamService {
     const shares = await this.usage.opsByPrefix(`tm:${team._id}:`);
     return { pool: {
       opsToday: await this.usage.ops(poolKey(String(team._id))), limit: perMember * Math.max(1, members.length), perMember,
+      ...(team.memberDailyCap ? { memberCap: team.memberDailyCap } : {}),
       ...(canManage ? { byMember: members.map((m: Doc) => ({ userId: String(m.userId), ops: shares[memberKey(String(team._id), String(m.userId))] ?? 0 })) } : {}),
     } };
   }
@@ -250,7 +261,7 @@ export class TeamService {
       return {
         id: String(t._id), name: t.name, plan: t.plan, owner: { id: String(t.ownerId), email: email.get(String(t.ownerId)) ?? '(deleted account)' },
         members: n, seats: this.seatsFor(t.plan), seatsUsed: n + (pending.get(String(t._id)) ?? 0),
-        ...(pool ? { pool } : {}),
+        ...(pool ? { pool: { ...pool, ...(t.memberDailyCap ? { memberCap: t.memberDailyCap } : {}) } } : {}),
         ...(b?.subscriptionId ? { subscription: { status: b.status, plan: b.plan, cancelAtPeriodEnd: b.cancelAtPeriodEnd } } : {}),
         createdAt: new Date(t.createdAt).toISOString(),
       };
