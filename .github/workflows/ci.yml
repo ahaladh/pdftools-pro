@@ -47,6 +47,8 @@ jobs:
       - name: System engines used by the PDF tools
         timeout-minutes: 35
         run: |
+          # The runner image's default mirror (Azure) is sometimes extremely slow; prefer the main archive, keep Azure as the fallback.
+          sudo sh -c '{ printf "http://archive.ubuntu.com/ubuntu/\tpriority:1\n"; cat /etc/apt/apt-mirrors.txt; } > /tmp/apt-mirrors.new && mv /tmp/apt-mirrors.new /etc/apt/apt-mirrors.txt'
           sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
           sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends ghostscript poppler-utils imagemagick util-linux \
             libreoffice-writer libreoffice-calc libreoffice-impress fonts-liberation python3 \
@@ -81,6 +83,8 @@ jobs:
       - name: System engines, nginx and Chrome
         timeout-minutes: 40
         run: |
+          # The runner image's default mirror (Azure) is sometimes extremely slow; prefer the main archive, keep Azure as the fallback.
+          sudo sh -c '{ printf "http://archive.ubuntu.com/ubuntu/\tpriority:1\n"; cat /etc/apt/apt-mirrors.txt; } > /tmp/apt-mirrors.new && mv /tmp/apt-mirrors.new /etc/apt/apt-mirrors.txt'
           sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
           sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends ghostscript poppler-utils imagemagick util-linux nginx \
             libreoffice-writer libreoffice-calc libreoffice-impress fonts-liberation python3 \
