@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { openPdf } from '@/features/tools/pdfjs';
 import { Field, Select, TextInput } from '@/features/tools/fields';
 import { SignaturePad } from './SignaturePad';
+import { ItemsPanel } from './ItemsPanel';
 import {
   buildPayload, hasBox, isRedaction, move, normRect, resizeTo, simplify, bounds,
   type A, type Built, type Item, type Mode, type R, type Tool,
@@ -198,6 +199,7 @@ export function Workspace({ mode, file, disabled, onChange }: Props) {
           />
         </div>
       </div>
+      <ItemsPanel mode={mode} pageNo={pageNo} items={hist.present} selected={selected} setSelected={setSelected} commit={commit} style={defaults} pendingImage={pendingImage} newId={uid} disabled={disabled} />
       <p className="text-xs text-slate-500">
         {mode === 'redact' ? 'Drag on the page to mark areas.' : 'Pick a tool and drag on the page. Select an item to move it, drag its corner to resize, press Delete to remove it.'}
         {' '}{items.length} item{items.length === 1 ? '' : 's'} total.
