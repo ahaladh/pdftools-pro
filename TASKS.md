@@ -21,6 +21,7 @@
 - [x] Phase 6 (done, see docs/FEATURES.md): MongoDB accounts, JWT + rotating refresh, dashboard, usage/quotas, plans/entitlements, Stripe, admin panel + audit log
 - [ ] Phase 6 leftovers: verify Stripe (checkout, team checkout, per-seat changes, webhooks) against test mode
 - [x] Phase 7 (done, see docs/SECURITY.md): isolation + limits, BullMQ worker, heartbeat recovery, security/abuse/resource tests, Playwright e2e + axe, CI workflow
-- [ ] Phase 7 leftovers: load testing, S3-compatible storage, seccomp/namespace sandbox, Playwright on Firefox/WebKit, visual-regression tests
+- [x] Playwright on Firefox and WebKit: full suite passes on both (103 passed, 14 skipped: 8 already skipped + the 6 Chromium-only tests, i.e. CPU throttling in spec 16 and the virtual authenticator in spec 18). Run with `E2E_BROWSER=firefox|webkit` after `npx playwright install firefox webkit`; Chrome stays the CI default (not added to CI: it would roughly triple e2e time). Linux builds only; real Safari on macOS/iOS is untested.
+- [ ] Phase 7 leftovers: load testing, S3-compatible storage, seccomp/namespace sandbox, visual-regression tests
 - [x] Phase 8 (done, see docs/DEPLOYMENT.md, docs/OPERATIONS.md): HTTPS reverse proxy (nginx + Caddy) verified with real binaries, health/readiness/metrics/alerts, graceful shutdown, migrations, backup/restore drill, doctor + smoke, prerendered SEO, systemd units, image-contents verification
 - [ ] Phase 8 leftovers (need real infrastructure; CI runs on GitHub on every push and builds the real images): first real `docker build`/compose deploy, Let's Encrypt, systemd on a real host, Prometheus/Alertmanager with real rules, load testing, S3-compatible storage, WAF/antivirus decision

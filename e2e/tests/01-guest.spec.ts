@@ -122,9 +122,12 @@ test.describe('guest workflows (no account)', () => {
     await page.goto('/redact');
     await page.setInputFiles('input[type=file]', file('doc.pdf', await makePdf(1)));
     await page.getByRole('button', { name: 'Redact Area' }).click();
-    await page.locator('svg.touch-none').hover();
-    const box = (await page.locator('svg.touch-none').boundingBox())!;
-    await page.mouse.move(box.x + 20, box.y + 20); await page.mouse.down(); await page.mouse.move(box.x + 120, box.y + 80, { steps: 4 }); await page.mouse.up();
+    await page.locator('svg.touch-none').evaluate((el) => el.scrollIntoView({ block: 'start', behavior: 'instant' })); // engines differ on whether hover() scrolls
+    // The page is taller than the window and scrolls smoothly: wait for the scroll to settle, then drag inside the part that is on screen and below the sticky header.
+    let box = (await page.locator('svg.touch-none').boundingBox())!;
+    await expect.poll(async () => { const b = (await page.locator('svg.touch-none').boundingBox())!; const still = b.y === box.y; box = b; return still; }, { intervals: [150], timeout: 10_000 }).toBe(true);
+    const top = Math.max(box.y, 0) + 140, left = box.x + 20;
+    await page.mouse.move(left, top); await page.mouse.down(); await page.mouse.move(left + 100, top + 60, { steps: 4 }); await page.mouse.up();
     await page.getByRole('button', { name: 'Apply redactions' }).click();
     await expect(page.getByRole('alert')).toContainText(/paid plan/i);
     await expect(page.getByRole('alert').getByRole('link', { name: 'See plans and limits' })).toHaveAttribute('href', '/pricing');

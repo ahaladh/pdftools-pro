@@ -7,7 +7,8 @@ import { register, uniqueEmail } from '../support/helpers';
  * Throttling the browser's CPU reproduces that reliably; the outcome must not depend on speed.
  */
 for (const rate of [1, 6, 12]) {
-  test(`signing out always ends on the home page, with the browser CPU throttled ${rate}x`, async ({ page }) => {
+  test(`signing out always ends on the home page, with the browser CPU throttled ${rate}x`, async ({ page, browserName }) => {
+    test.skip(browserName !== 'chromium', 'CPU throttling is a Chrome DevTools Protocol feature (Firefox/WebKit have no equivalent in Playwright)');
     await register(page, uniqueEmail('slow'), 'e2e-Passw0rd-original');
     const cdp = await page.context().newCDPSession(page);
     await cdp.send('Emulation.setCPUThrottlingRate', { rate });

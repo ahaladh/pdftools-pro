@@ -1,5 +1,7 @@
 import { defineConfig } from '@playwright/test';
 
+// E2E_BROWSER=firefox|webkit runs the suite on another engine (default: the installed Chrome).
+const engine = process.env.E2E_BROWSER ?? 'chrome';
 const web = `http://localhost:${process.env.E2E_WEB_PORT ?? 4173}`;
 export default defineConfig({
   testDir: './tests',
@@ -11,8 +13,8 @@ export default defineConfig({
   reporter: [['list']],
   use: {
     baseURL: web,
-    // Use the Chrome already installed on the machine/CI image: no browser download needed.
-    channel: 'chrome',
+    // Chrome: the one already installed on the machine/CI image. Firefox/WebKit: Playwright's own builds.
+    ...(engine === 'chrome' ? { channel: 'chrome' } : { browserName: engine as 'firefox' | 'webkit' }),
     headless: true,
     trace: 'retain-on-failure', screenshot: 'only-on-failure',
   },

@@ -41,6 +41,8 @@ async function addKey(page: Page, name = 'Desk key') {
 }
 
 test.describe('security keys (WebAuthn)', () => {
+  // The virtual authenticator is a Chrome DevTools Protocol feature; the server side (software authenticator) is covered for every engine in the API tests.
+  test.skip(({ browserName }) => browserName !== 'chromium', 'needs the Chromium virtual authenticator');
   test('add a key, sign out, sign in with password then the key; Chrome\'s authenticator confirms what happened', async ({ page }) => {
     const mon = watchConsole(page);
     const key = await virtualKey(page);
