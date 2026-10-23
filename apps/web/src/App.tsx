@@ -8,6 +8,7 @@ import { ForgotPassword, JoinTeam, Register, RequireAuth, ResetPassword, SignIn,
 
 const Tools = lazy(() => import('@/pages/Tools'));
 const Pricing = lazy(() => import('@/pages/Pricing'));
+const ViewerPage = lazy(() => import('@/pages/Viewer'));
 const ToolPage = lazy(() => import('@/features/tools/ToolPage'));
 const Privacy = lazy(() => import('@/pages/Legal').then((m) => ({ default: m.Privacy })));
 const Account = lazy(() => import('@/pages/Account'));
@@ -22,6 +23,7 @@ export default function App() {
           <Route index element={<Home />} />
           <Route path="tools" element={<Tools />} />
           <Route path="pricing" element={<Pricing />} />
+          <Route path="view" element={<ViewerPage />} />
           <Route path="privacy" element={<Privacy />} />
           <Route path="terms" element={<Terms />} />
           <Route path="signin" element={<SignIn />} />

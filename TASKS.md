@@ -5,6 +5,7 @@
 
 ## Next
 - [x] Phase 5 (done, see docs/FEATURES.md): workspace (view/edit/sign/redact), Office→PDF, protect/unlock, text/HTML/image extraction, crop/resize/blank pages, flatten forms, compare, repair
+- [x] Standalone PDF viewer with whole-document search (`/view`, client-side only)
 - [x] Keyboard and screen-reader operation of the editor (freehand and signature drawing remain pointer-only)
 - [x] Antivirus hook: optional ClamAV scanning of uploads (not yet run against real ClamAV)
 - [x] Batch processing as a plan entitlement (Razorpay: decided against, see docs/FEATURES.md)
@@ -16,7 +17,7 @@
 - [x] Two-step sign-in required for administrators (`REQUIRE_ADMIN_2FA`)
 - [x] WebAuthn security keys as a second factor (passwordless passkey sign-in not built)
 - [x] Form filling (`fill-form`; see docs/FEATURES.md for what it refuses)
-- [ ] Phase 5 leftovers: OCR languages beyond English / non-Latin text layer (needs an embedded Unicode font), editing text inside embedded forms / Type 3 / CJK fonts, reflowing paragraphs, Playwright e2e for the workspace, standalone viewer route
+- [ ] Phase 5 leftovers: OCR languages beyond English / non-Latin text layer (needs an embedded Unicode font), editing text inside embedded forms / Type 3 / CJK fonts, reflowing paragraphs, Playwright e2e for the workspace
 - [x] Phase 6 (done, see docs/FEATURES.md): MongoDB accounts, JWT + rotating refresh, dashboard, usage/quotas, plans/entitlements, Stripe, admin panel + audit log
 - [ ] Phase 6 leftovers: verify Stripe (checkout, team checkout, per-seat changes, webhooks) against test mode
 - [x] Phase 7 (done, see docs/SECURITY.md): isolation + limits, BullMQ worker, heartbeat recovery, security/abuse/resource tests, Playwright e2e + axe, CI workflow

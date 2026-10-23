@@ -1,6 +1,8 @@
 import { ALL_TOOLS, CATEGORY_LABELS, type ToolCategory } from '@pdftools/shared';
 import { ToolCard } from '@/components/ToolCard';
 import { CATEGORY_STYLE } from '@/lib/category';
+import { Link } from 'react-router-dom';
+import { Eye } from 'lucide-react';
 import { useSeo } from '@/hooks/useSeo';
 
 export default function Tools() {
@@ -10,6 +12,7 @@ export default function Tools() {
     <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6">
       <h1 className="text-4xl font-bold tracking-tight">All PDF tools</h1>
       <p className="mt-3 max-w-2xl text-lg text-slate-600">Tools marked “Soon” are on the roadmap and are not yet functional.</p>
+      <p className="mt-5"><Link to="/view" className="inline-flex items-center gap-2 rounded-xl border border-slate-200/80 bg-white px-4 py-2.5 text-sm font-medium shadow-[var(--shadow-soft)] transition-colors hover:border-brand-200"><Eye className="h-4 w-4 text-sky-700" aria-hidden="true" />Just want to read a PDF? View it here, on your device. Nothing is uploaded.</Link></p>
       {cats.map((c) => {
         const list = ALL_TOOLS.filter((t) => t.category === c);
         if (!list.length) return null;

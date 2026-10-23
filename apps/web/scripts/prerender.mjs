@@ -37,7 +37,7 @@ const server = createServer((req, res) => {
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const origin = `http://127.0.0.1:${server.address().port}`;
 
-const routes = ['/', '/tools', '/privacy', '/terms', ...TOOLS.map((t) => `/${t.id}`)];
+const routes = ['/', '/tools', '/view', '/privacy', '/terms', ...TOOLS.map((t) => `/${t.id}`)];
 // PRERENDER_BROWSER: unset or "system" = system Chrome; "bundled" = Playwright's own Chromium (the Docker build image); else a path to a browser.
 const pb = process.env.PRERENDER_BROWSER;
 const launch = pb === 'bundled' ? {} : pb && pb !== 'system' ? { executablePath: pb } : { channel: 'chrome' };

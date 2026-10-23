@@ -13,7 +13,7 @@ test.use({ ignoreHTTPSErrors: true });
 let edge: Edge; let BASE = '';
 test.beforeAll(() => { edge = startEdge({ apiAddr: '127.0.0.1:4101', httpPort: 4380, httpsPort: 4343 }); BASE = edge.httpsUrl; });
 test.afterAll(() => edge?.stop());
-const routes = ['/', '/tools', '/privacy', '/terms', ...TOOLS.map((t) => `/${t.id}`)];
+const routes = ['/', '/tools', '/view', '/privacy', '/terms', ...TOOLS.map((t) => `/${t.id}`)];
 
 async function noJs(browser: Browser) { return browser.newContext({ javaScriptEnabled: false, ignoreHTTPSErrors: true }); }
 

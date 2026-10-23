@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { file, makePdf, register, uniqueEmail } from '../support/helpers';
 
-const PUBLIC = ['/', '/tools', '/pricing', '/signin', '/register', '/forgot-password', '/privacy', '/terms', '/merge', '/organize', '/edit', '/compress'];
+const PUBLIC = ['/', '/tools', '/view', '/pricing', '/signin', '/register', '/forgot-password', '/privacy', '/terms', '/merge', '/organize', '/edit', '/compress'];
 
 test.describe('accessibility (axe, WCAG 2.1 A/AA)', () => {
   for (const path of PUBLIC) {

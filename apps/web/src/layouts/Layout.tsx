@@ -125,6 +125,7 @@ function Footer() {
           <p className="text-sm font-semibold text-white">Company</p>
           <ul className="mt-4 space-y-2.5 text-sm">
             <li><Link className={linkCls} to="/tools">All tools</Link></li>
+            <li><Link className={linkCls} to="/view">View PDF</Link></li>
             <li><Link className={linkCls} to="/pricing">Pricing</Link></li>
             <li><Link className={linkCls} to="/privacy">Privacy policy</Link></li>
             <li><Link className={linkCls} to="/terms">Terms of service</Link></li>
