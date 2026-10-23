@@ -19,6 +19,7 @@ env:
 jobs:
   audit:
     name: Dependency audit
+    timeout-minutes: 15
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -31,6 +32,7 @@ jobs:
 
   test:
     name: Typecheck, unit and integration tests
+    timeout-minutes: 45
     runs-on: ubuntu-24.04
     services:
       redis:
@@ -43,9 +45,10 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - name: System engines used by the PDF tools
+        timeout-minutes: 15
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ghostscript poppler-utils imagemagick util-linux \
+          sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
+          sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends ghostscript poppler-utils imagemagick util-linux \
             libreoffice-writer libreoffice-calc libreoffice-impress fonts-liberation python3 \
             tesseract-ocr tesseract-ocr-eng default-jre-headless
       - name: veraPDF (PDF/A validator; the OCR/PDF-A tests are mandatory in CI)
@@ -62,6 +65,7 @@ jobs:
 
   e2e:
     name: End-to-end (Chrome, API + worker + MongoDB + Redis)
+    timeout-minutes: 60
     runs-on: ubuntu-24.04
     needs: test
     services:
@@ -75,9 +79,10 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
       - name: System engines, nginx and Chrome
+        timeout-minutes: 20
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ghostscript poppler-utils imagemagick util-linux nginx \
+          sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
+          sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends ghostscript poppler-utils imagemagick util-linux nginx \
             libreoffice-writer libreoffice-calc libreoffice-impress fonts-liberation python3 \
             tesseract-ocr tesseract-ocr-eng default-jre-headless
           infrastructure/scripts/dev-engines.sh | sed -e 's/^export //' -e 's/"//g' >> "$GITHUB_ENV"
@@ -103,6 +108,7 @@ jobs:
 
   docker:
     name: Docker images build and smoke test
+    timeout-minutes: 30
     runs-on: ubuntu-24.04
     needs: test
     steps:
