@@ -44,15 +44,29 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
+      - uses: actions/cache/restore@v4
+        with:
+          path: ~/apt-cache
+          key: apt-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: apt-${{ github.job }}-
+      - run: mkdir -p ~/apt-cache/partial
       - name: System engines used by the PDF tools
         timeout-minutes: 35
         run: |
-          # The runner image's default mirror (Azure) is sometimes extremely slow; prefer the main archive, keep Azure as the fallback.
-          sudo sh -c '{ printf "http://archive.ubuntu.com/ubuntu/\tpriority:1\n"; cat /etc/apt/apt-mirrors.txt; } > /tmp/apt-mirrors.new && mv /tmp/apt-mirrors.new /etc/apt/apt-mirrors.txt'
           sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
-          sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends ghostscript poppler-utils imagemagick util-linux \
+          sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Dir::Cache::archives=$HOME/apt-cache -o APT::Keep-Downloaded-Packages=true install -y --no-install-recommends ghostscript poppler-utils imagemagick util-linux \
             libreoffice-writer libreoffice-calc libreoffice-impress fonts-liberation python3 \
             tesseract-ocr tesseract-ocr-eng default-jre-headless
+      # Saved even when the install above failed or timed out, so a retry resumes from what was already downloaded
+      # (the runner image's package mirror is sometimes very slow).
+      - name: Keep downloaded packages for the next run
+        if: always()
+        run: sudo chown -R "$USER" ~/apt-cache && sudo rm -f ~/apt-cache/lock
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: ~/apt-cache
+          key: apt-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
       - name: veraPDF (PDF/A validator; the OCR/PDF-A tests are mandatory in CI)
         run: infrastructure/scripts/dev-engines.sh | sed -e 's/^export //' -e 's/"//g' >> "$GITHUB_ENV"
       - name: MongoDB database tools (backup/restore drill)
@@ -80,13 +94,17 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm }
+      - uses: actions/cache/restore@v4
+        with:
+          path: ~/apt-cache
+          key: apt-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: apt-${{ github.job }}-
+      - run: mkdir -p ~/apt-cache/partial
       - name: System engines, nginx and Chrome
         timeout-minutes: 40
         run: |
-          # The runner image's default mirror (Azure) is sometimes extremely slow; prefer the main archive, keep Azure as the fallback.
-          sudo sh -c '{ printf "http://archive.ubuntu.com/ubuntu/\tpriority:1\n"; cat /etc/apt/apt-mirrors.txt; } > /tmp/apt-mirrors.new && mv /tmp/apt-mirrors.new /etc/apt/apt-mirrors.txt'
           sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update
-          sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends ghostscript poppler-utils imagemagick util-linux nginx \
+          sudo apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Dir::Cache::archives=$HOME/apt-cache -o APT::Keep-Downloaded-Packages=true install -y --no-install-recommends ghostscript poppler-utils imagemagick util-linux nginx \
             libreoffice-writer libreoffice-calc libreoffice-impress fonts-liberation python3 \
             tesseract-ocr tesseract-ocr-eng default-jre-headless
           infrastructure/scripts/dev-engines.sh | sed -e 's/^export //' -e 's/"//g' >> "$GITHUB_ENV"
@@ -95,6 +113,16 @@ jobs:
           curl -fsSL https://github.com/caddyserver/caddy/releases/download/v2.8.4/caddy_2.8.4_linux_amd64.tar.gz | sudo tar xz -C /usr/local/bin caddy
           echo "CADDY_BIN=/usr/local/bin/caddy" >> "$GITHUB_ENV"
           npx --yes playwright@1.64 install --with-deps chrome
+      # Saved even when the install above failed or timed out, so a retry resumes from what was already downloaded
+      # (the runner image's package mirror is sometimes very slow).
+      - name: Keep downloaded packages for the next run
+        if: always()
+        run: sudo chown -R "$USER" ~/apt-cache && sudo rm -f ~/apt-cache/lock
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: ~/apt-cache
+          key: apt-${{ github.job }}-${{ github.run_id }}-${{ github.run_attempt }}
       - run: npm ci
         env: { REDISMS_DISABLE_POSTINSTALL: '1', PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1' }
       - run: SITE_URL=http://localhost:4173 npm run test:e2e
