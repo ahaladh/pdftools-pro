@@ -227,6 +227,21 @@ Going back to `flat` returns seats to `TEAM_SEATS_*` at once.
 * nginx caps request bodies at `1g` for `/api/pdf/` and rate-limits per IP (`pdf_upload` 30/min burst 20, `pdf_auth` 30/min burst 10, `pdf_api` 600/min burst 200); raise them if many users share one IP (offices, universities, mobile carriers).
 * Behind any proxy or load balancer set `TRUST_PROXY` to the number of proxies, or every visitor shares one IP for quotas.
 
+### Load test
+
+`node infrastructure/scripts/loadtest.mjs <url> --users N --seconds S` has N anonymous users repeat "merge two small PDFs, wait, download, delete" and reports latency percentiles, throughput and errors (exit 1 above `--max-error-rate`/`--max-p95-ms`). Run it only against a system you own, with `RATE_LIMIT_ENABLED=false` and raised `DAILY_OPS_GUEST` / `MAX_CONCURRENT_JOBS_PER_USER` for a capacity test.
+
+Measured once, on a 12-thread development PC with MongoDB, Redis, the API and the workers all on that machine, and tiny 3-page PDFs (2026-10-26; **not a production figure**, and not real load: no large files, no OCR/conversion, no network):
+
+| Setup | Users | Jobs/s | End-to-end p50 / p95 | Errors |
+|---|---|---|---|---|
+| 1 worker × 2 | 5 | 5.8 | 0.7 s / 1.0 s | 0 |
+| 1 worker × 2 | 20 | 5.4 | 3.8 s / 4.3 s | 0 |
+| 1 worker × 2 | 60 | 5.4 | 10.8 s / 12.4 s | 0 |
+| 2 workers × 2 | 60 | 9.5 | 6.3 s / 6.8 s | 0 |
+
+What it shows: submitting, polling and downloading stay in the tens of milliseconds at 60 users, and no request failed; throughput is capped by worker slots (flat from 5 to 60 users, then ~1.75× with a second worker), so extra users wait in the queue instead of failing. Size workers from this: slots needed ≈ peak jobs/s × seconds per job. Still untested: heavy tools (OCR, Office conversion, big files), real network, a managed MongoDB/Redis, and sustained hours-long load.
+
 ## Routine checklist
 
 * Daily: alerts quiet; last backup exists and is off-host.
