@@ -90,7 +90,7 @@ export const optionSchemas = {
   unlock: z.object({
     password: z.string().min(1).max(128),
     /** The user must affirm they are entitled to open this document. */
-    confirmAuthorized: z.literal(true, { errorMap: () => ({ message: 'Please confirm you are authorized to open this document' }) }),
+    confirmAuthorized: z.literal(true, { error: 'Please confirm you are authorized to open this document' }),
   }),
   'pdf-to-text': z.object({}).strict(),
   'pdf-to-html': z.object({}).strict(),

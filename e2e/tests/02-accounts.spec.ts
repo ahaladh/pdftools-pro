@@ -62,7 +62,7 @@ test.describe('accounts', () => {
     await page.getByLabel('Email').fill('not-an-email');
     await page.getByLabel('Password').fill('short');
     await page.getByRole('button', { name: 'Create account' }).click();
-    await expect(page.getByText('Invalid email')).toBeVisible();
+    await expect(page.getByText('Enter a valid email address')).toBeVisible();
     await expect(page.getByText('Use at least 10 characters').first()).toBeVisible();
     await expect(page).toHaveURL(/\/register$/);
   });

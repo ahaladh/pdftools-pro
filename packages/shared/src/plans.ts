@@ -118,12 +118,12 @@ export interface UsageView {
 }
 
 export const registerSchema = z.object({
-  email: z.string().trim().toLowerCase().email().max(254),
+  email: z.string().trim().toLowerCase().email('Enter a valid email address').max(254),
   password: z.string().min(10, 'Use at least 10 characters').max(128),
   name: z.string().trim().max(80).default(''),
 });
-export const loginSchema = z.object({ email: z.string().trim().toLowerCase().email().max(254), password: z.string().min(1).max(128) });
-export const forgotSchema = z.object({ email: z.string().trim().toLowerCase().email().max(254) });
+export const loginSchema = z.object({ email: z.string().trim().toLowerCase().email('Enter a valid email address').max(254), password: z.string().min(1).max(128) });
+export const forgotSchema = z.object({ email: z.string().trim().toLowerCase().email('Enter a valid email address').max(254) });
 export const resetSchema = z.object({ token: z.string().min(20).max(200), password: z.string().min(10, 'Use at least 10 characters').max(128) });
 export const changePasswordSchema = z.object({ currentPassword: z.string().min(1).max(128), newPassword: z.string().min(10, 'Use at least 10 characters').max(128) });
 export const verifyEmailSchema = z.object({ token: z.string().min(20).max(200) });
@@ -136,7 +136,7 @@ export const twoFactorConfirmSchema = z.object({ password: z.string().min(1).max
 /** A WebAuthn credential as produced by the browser (validated in depth by the verifier; this only bounds its shape and size). */
 const webauthnResponse = z.object({
   id: z.string().min(1).max(1400), rawId: z.string().min(1).max(1400), type: z.literal('public-key'),
-  response: z.record(z.unknown()), clientExtensionResults: z.record(z.unknown()).optional(), authenticatorAttachment: z.string().max(40).optional(),
+  response: z.record(z.string(), z.unknown()), clientExtensionResults: z.record(z.string(), z.unknown()).optional(), authenticatorAttachment: z.string().max(40).optional(),
 }).passthrough();
 export const securityKeyRegisterSchema = z.object({ response: webauthnResponse, name: z.string().trim().min(1, 'Give the key a name').max(40) });
 export const securityKeyLoginOptionsSchema = z.object({ challenge: z.string().min(20).max(2000) });
@@ -145,7 +145,7 @@ export const createTeamSchema = z.object({ name: z.string().trim().min(2, 'Use a
 export const renameTeamSchema = createTeamSchema;
 /** `null` removes the limit. */
 export const teamSettingsSchema = z.object({ memberDailyCap: z.number().int('Use a whole number').min(1, 'Use at least 1').max(1_000_000).nullable() });
-export const inviteSchema = z.object({ email: z.string().trim().toLowerCase().email().max(254), role: z.enum(['admin', 'member']).default('member') });
+export const inviteSchema = z.object({ email: z.string().trim().toLowerCase().email('Enter a valid email address').max(254), role: z.enum(['admin', 'member']).default('member') });
 export const acceptInviteSchema = z.object({ token: z.string().min(20).max(200) });
 export const memberRoleSchema = z.object({ role: z.enum(['admin', 'member']) });
 export const transferSchema = z.object({ userId: z.string().regex(/^[a-f0-9]{24}$/) });
