@@ -3,6 +3,11 @@ name: CI
 on:
   push: { branches: [main, master] }
   workflow_dispatch:
+    inputs:
+      update_visual_baselines:
+        description: 'Make new visual-regression baselines on this runner (download the "visual-baselines" artifact and commit it to e2e/tests/28-visual.spec.ts-snapshots/)'
+        type: boolean
+        default: false
   pull_request:
 
 concurrency:
@@ -129,6 +134,22 @@ jobs:
       # Same suite plus the image-contents verification (executes the real Dockerfiles' COPY/npm steps in clean directories).
       - run: E2E_VERIFY_IMAGES=1 npx playwright test tests/09-images.spec.ts
         working-directory: e2e
+      # Visual regression: pixel comparison of key screens with baselines made on this same kind of runner (see spec 28).
+      # Runs only once baselines are committed; run the workflow by hand with update_visual_baselines to (re)make them.
+      - name: Visual regression, compared with the committed baselines
+        if: ${{ !inputs.update_visual_baselines && hashFiles('e2e/tests/28-visual.spec.ts-snapshots/**') != '' }}
+        run: E2E_VISUAL=1 npx playwright test tests/28-visual.spec.ts
+        working-directory: e2e
+      - name: Visual regression, making new baselines
+        if: ${{ inputs.update_visual_baselines }}
+        run: E2E_VISUAL=1 npx playwright test tests/28-visual.spec.ts --update-snapshots
+        working-directory: e2e
+      - uses: actions/upload-artifact@v4
+        if: ${{ inputs.update_visual_baselines }}
+        with:
+          name: visual-baselines
+          path: e2e/tests/28-visual.spec.ts-snapshots
+          retention-days: 7
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

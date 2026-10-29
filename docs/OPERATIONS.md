@@ -257,6 +257,10 @@ Support: *"I paid and have no plan"* — search the API log for `razorpay:` line
 
 **Not verified against the real Razorpay** (see FEATURES.md): the request and webhook shapes are written from Razorpay's public documentation and tested against a fake server. Before going live, make one real test-mode purchase end to end, a seat change, a failed card and a cancellation.
 
+### Visual regression baselines
+
+Spec 28 compares 11 screens (home, pricing, all tools, merge with and without files, sign-in, register, privacy, viewer, 404, and the phone layout of home and pricing) pixel for pixel with committed screenshots; up to 20 pixels may differ. CI runs it once baselines exist. When a change is **meant** to alter how pages look: push it, then *Actions > CI > Run workflow* with **update_visual_baselines** ticked, download the `visual-baselines` artifact from that run, replace the files in `e2e/tests/28-visual.spec.ts-snapshots/`, and commit them with the change (look at the images first: they are the new truth). An unexpected failure uploads the expected/actual/diff images with the run's `e2e-diagnostics` artifact. Baselines depend on the runner image and Chrome build, so after a runner image update a mass failure with tiny differences means "re-make the baselines", not "the site broke". Locally the spec is skipped unless `E2E_VISUAL=1`, and only matches baselines made on an identical setup.
+
 ## Routine checklist
 
 * Daily: alerts quiet; last backup exists and is off-host.
