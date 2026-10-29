@@ -39,6 +39,17 @@ Always finish a deployment with `doctor` and `smoke` (below): they check the rea
 * **First administrator:** sign in with `ADMIN_EMAIL` / `ADMIN_PASSWORD`, open *Account* and add an authenticator app or a security key (production requires one before the admin area opens), then remove `ADMIN_PASSWORD` from the environment.
 * Decide the public origin (`https://pdf.example.com`). It is baked into the web build (canonical URLs, sitemap, robots, prerendered pages), so changing the domain means rebuilding the web image.
 
+## Hostinger VPS (the quickest path)
+
+For a Hostinger **VPS** (KVM plan, Ubuntu 22.04/24.04 template, 4 GB RAM or more; the shared/Node.js "web hosting" plans cannot run this stack).
+1. Point your domain's DNS **A record** at the VPS IP (hPanel > Domains > DNS, or wherever the DNS is).
+2. Fill in the settings file (`.env.hostinger`, made from `.env.example`: replace every `CHANGE_ME`) and copy it to the server: `scp .env.hostinger root@SERVER_IP:/root/pdftools.env`.
+3. Copy `infrastructure/scripts/hostinger-install.sh` to the server and run it as root with the repository address. The repository is private, so use a read-only GitHub token (fine-grained, "Contents: read" on this repo) in the URL: `REPO_URL=https://TOKEN@github.com/ahaladh/pdftools-pro.git bash hostinger-install.sh`.
+4. It installs Docker if needed, fetches the code, checks the settings and the DNS, builds the images (10 to 20 minutes the first time), starts everything, runs `doctor` and tests the site. Then follow the "Next" list it prints (delete `ADMIN_PASSWORD`, Razorpay webhook, backups).
+5. To update later, run the same script again. It keeps your settings and data.
+
+Hostinger's "Docker Manager" panel can also deploy a compose project from a Git URL and takes the env file as pasted text, but it does not support a private repository without extra setup and the stack needs two compose files (`-f docker-compose.yml -f docker-compose.tls.yml`), so the script is the supported route. The script has not been run on a real Hostinger server: read its output and fix what it says.
+
 ## A. Docker Compose + Caddy
 
 ```bash
