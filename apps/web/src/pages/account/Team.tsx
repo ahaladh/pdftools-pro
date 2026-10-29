@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Crown, LogOut, Trash2, UserPlus, Users } from 'lucide-react';
-import type { TeamMemberView, TeamView } from '@pdftools/shared';
+import type { BillingProvider, TeamMemberView, TeamView } from '@pdftools/shared';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { ProviderChoice, viaFor } from '@/components/ProviderChoice';
 import { Field, Select, TextInput } from '@/features/tools/fields';
 import { api } from '@/lib/api';
 import { useAuth } from '@/stores/auth';
@@ -103,7 +104,10 @@ export function TeamCard() {
   const [seatChange, setSeatChange] = useState('');
   const plans = useQuery({ queryKey: ['plans'], queryFn: api.plans, staleTime: 5 * 60_000 });
   const setSeatCount = useMutation({ mutationFn: (n: number) => api.teams.setSeats(n), ...opts, onSuccess: async () => { setSeatChange(''); await opts.onSuccess(); } });
-  const checkout = useMutation({ mutationFn: (v: { plan: 'pro' | 'business'; seats?: number }) => api.teams.checkout(v.plan, v.seats), onSuccess: (r) => { window.location.href = r.url; }, onError: (e) => setErr(errText(e)) });
+  const [pref, setPref] = useState<BillingProvider>('stripe');
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const cancelSub = useMutation({ mutationFn: api.teams.cancel, ...opts, onSuccess: async () => { setConfirmCancel(false); await opts.onSuccess(); } });
+  const checkout = useMutation({ mutationFn: (v: { plan: 'pro' | 'business'; seats?: number }) => api.teams.checkout(v.plan, v.seats, viaFor(pref, plans.data?.find((x) => x.id === v.plan) ?? { providers: cfg.data?.features.billingProviders ?? [] })), onSuccess: (r) => { window.location.href = r.url; }, onError: (e) => setErr(errText(e)) });
   const portal = useMutation({ mutationFn: api.teams.portal, onSuccess: (r) => { window.location.href = r.url; }, onError: (e) => setErr(errText(e)) });
   if (!user) return null;
 
@@ -181,10 +185,12 @@ export function TeamCard() {
                     const n = seatsWanted === '' ? sb?.min : Number(seatsWanted);
                     const okSeats = !sb || (Number.isInteger(n) && n! >= sb.min && n! <= sb.max);
                     const price = (id: 'pro' | 'business') => { const p = plans.data?.find((x) => x.id === id); return p && p.priceCents > 0 && sb && n ? ` · ${new Intl.NumberFormat(undefined, { style: 'currency', currency: p.currency.toUpperCase() }).format((p.priceCents * n) / 100)}/month` : ''; };
+                    const gateways = cfg.data?.features.billingProviders ?? [];
                     return <>
+                      <ProviderChoice providers={gateways} value={gateways.includes(pref) ? pref : gateways[0]!} onChange={setPref} name="team-provider" />
                       {sb && (
                         <div className="w-full">
-                          <Field label="Seats to buy" hint={`Billed per seat, each month. Between ${sb.min} and ${sb.max}${sb.min > 2 ? ` (your team already has ${sb.min} people and invitations)` : ''}. You can change this later and Stripe prorates it.`}>
+                          <Field label="Seats to buy" hint={`Billed per seat, each month. Between ${sb.min} and ${sb.max}${sb.min > 2 ? ` (your team already has ${sb.min} people and invitations)` : ''}. You can change this later; the payment provider charges or credits the difference.`}>
                             <TextInput className="!w-28" inputMode="numeric" value={seatsWanted === '' ? String(sb.min) : seatsWanted} onChange={(e) => setSeatsWanted(e.target.value)} />
                           </Field>
                         </div>
@@ -195,13 +201,20 @@ export function TeamCard() {
                   })()}
                   {cfg.data?.features.billing && team.subscription && team.seatBilling && team.subscription.status !== 'canceled' && (
                     <form className="flex w-full flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); const v = Number(seatChange); if (Number.isInteger(v)) setSeatCount.mutate(v); }}>
-                      <Field label="Seats" hint={`Now ${team.seats}. Between ${team.seatBilling.min} and ${team.seatBilling.max}: not fewer than the people you have. Stripe charges an increase now (prorated) and credits a decrease on the next invoice.`}>
+                      <Field label="Seats" hint={`Now ${team.seats}. Between ${team.seatBilling.min} and ${team.seatBilling.max}: not fewer than the people you have. ${team.subscription.provider === 'razorpay' ? 'Razorpay charges the difference when you change the seats.' : 'Stripe charges an increase now (prorated) and credits a decrease on the next invoice.'}`}>
                         <TextInput className="!w-28" inputMode="numeric" value={seatChange === '' ? String(team.seats) : seatChange} onChange={(e) => setSeatChange(e.target.value)} />
                       </Field>
                       <Button type="submit" size="sm" disabled={setSeatCount.isPending || seatChange === '' || Number(seatChange) === team.seats || !Number.isInteger(Number(seatChange)) || Number(seatChange) < team.seatBilling.min || Number(seatChange) > team.seatBilling.max}>Update seats</Button>
                     </form>
                   )}
-                  {cfg.data?.features.billing && team.subscription && <Button size="sm" variant="secondary" disabled={portal.isPending} onClick={() => portal.mutate()}>Manage team billing</Button>}
+                  {cfg.data?.features.billing && team.subscription && team.subscription.provider !== 'razorpay' && <Button size="sm" variant="secondary" disabled={portal.isPending} onClick={() => portal.mutate()}>Manage team billing</Button>}
+                  {team.subscription?.provider === 'razorpay' && team.subscription.status !== 'canceled' && (team.subscription.cancelAtPeriodEnd
+                    ? <p role="status" className="text-xs text-slate-700">The team subscription will not renew; the plan runs to the end of the paid period.</p>
+                    : confirmCancel
+                      ? <span className="flex items-center gap-2 text-xs">Stop renewing at the end of this period?
+                          <Button size="sm" variant="secondary" disabled={cancelSub.isPending} onClick={() => cancelSub.mutate()}>Yes, cancel renewal</Button>
+                          <Button size="sm" variant="ghost" onClick={() => setConfirmCancel(false)}>Keep it</Button></span>
+                      : <Button size="sm" variant="secondary" onClick={() => setConfirmCancel(true)}>Cancel team subscription</Button>)}
                   {!cfg.data?.features.billing && <p className="text-xs text-slate-600">Paid checkout is not enabled on this server.</p>}
                 </div>
               </div>

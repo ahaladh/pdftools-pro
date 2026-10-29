@@ -1,4 +1,4 @@
-import type { ApiResponse, JobView, PlanConfig, PublicConfig, UsageView, UserView } from '@pdftools/shared';
+import type { BillingProvider, ApiResponse, JobView, PlanConfig, PublicConfig, UsageView, UserView } from '@pdftools/shared';
 import { authedFetch, getToken, refreshSession, type AuthPayload } from './session';
 
 export class ApiError extends Error {
@@ -16,7 +16,7 @@ async function parse<T>(res: Response): Promise<T> {
 const json = (method: string, body?: unknown): RequestInit => ({ method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
 const call = async <T,>(path: string, init?: RequestInit) => parse<T>(await authedFetch(path, init));
 
-export interface PublicPlan extends Omit<PlanConfig, 'stripePriceId'> { purchasable: boolean }
+export interface PublicPlan extends Omit<PlanConfig, 'stripePriceId' | 'razorpayPlanId'> { purchasable: boolean; providers: BillingProvider[] }
 export interface Paged<T> { rows: T[]; total: number; page: number; pageSize: number }
 
 export const api = {
@@ -84,12 +84,14 @@ export const api = {
     removeMember: (userId: string) => call<import('@pdftools/shared').TeamView>(`/api/teams/mine/members/${userId}`, { method: 'DELETE' }),
     leave: () => call<{ left: boolean }>('/api/teams/mine/leave', { method: 'POST' }),
     transfer: (userId: string) => call<import('@pdftools/shared').TeamView>('/api/teams/mine/transfer', json('POST', { userId })),
-    checkout: (plan: 'pro' | 'business', seats?: number) => call<{ url: string }>('/api/billing/team/checkout', json('POST', { plan, ...(seats !== undefined ? { seats } : {}) })),
+    checkout: (plan: 'pro' | 'business', seats?: number, provider?: BillingProvider) => call<{ url: string }>('/api/billing/team/checkout', json('POST', { plan, ...(seats !== undefined ? { seats } : {}), ...(provider ? { provider } : {}) })),
+    cancel: () => call<{ cancelAtPeriodEnd: boolean }>('/api/billing/team/cancel', { method: 'POST' }),
     setSeats: (seats: number) => call<{ seats: number }>('/api/billing/team/seats', json('POST', { seats })),
     portal: () => call<{ url: string }>('/api/billing/team/portal', { method: 'POST' }),
   },
   billing: {
-    checkout: (plan: 'pro' | 'business') => call<{ url: string }>('/api/billing/checkout', json('POST', { plan })),
+    checkout: (plan: 'pro' | 'business', provider?: BillingProvider) => call<{ url: string }>('/api/billing/checkout', json('POST', { plan, ...(provider ? { provider } : {}) })),
+    cancel: () => call<{ cancelAtPeriodEnd: boolean }>('/api/billing/cancel', { method: 'POST' }),
     portal: () => call<{ url: string }>('/api/billing/portal', { method: 'POST' }),
   },
   admin: {

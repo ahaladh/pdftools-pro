@@ -12,7 +12,7 @@ export function Privacy() {
       <h2 className="mt-6 text-xl font-semibold">Storage and deletion</h2>
       <p className="mt-2 text-slate-700">Uploads are written to private storage not reachable by public URL. Original uploads are deleted when processing ends. Results are deleted automatically after the retention period shown on each tool page, or immediately if you choose “Delete now”.</p>
       <h2 className="mt-6 text-xl font-semibold">Accounts</h2>
-      <p className="mt-2 text-slate-700">If you create an account we store your email, optional name, a salted hash of your password (never the password), your plan, and per-day usage counts. Job history keeps tool names and status, not document contents. Payments are processed by Stripe; we store only Stripe customer and subscription identifiers. Deleting your account removes this data and any stored results.</p>
+      <p className="mt-2 text-slate-700">If you create an account we store your email, optional name, a salted hash of your password (never the password), your plan, and per-day usage counts. Job history keeps tool names and status, not document contents. Payments are processed by Stripe or Razorpay, whichever you choose at checkout; we store only that provider's customer and subscription identifiers. Deleting your account removes this data and any stored results.</p>
       <h2 className="mt-6 text-xl font-semibold">Identifiers and logs</h2>
       <p className="mt-2 text-slate-700">A random, httpOnly session cookie links your browser to your own jobs. Server logs record job identifiers, tool names and status — never file contents or filenames.</p>
     </article>

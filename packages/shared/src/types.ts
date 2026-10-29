@@ -30,5 +30,5 @@ export interface PublicConfig {
   brand: string;
   limits: { maxFileMB: number; maxFiles: number; maxPages: number; retentionMinutes: number };
   maintenance: boolean;
-  features: { accounts: boolean; billing: boolean; /** Administrators must use a second sign-in step. */ adminTwoFactor: boolean; /** How teams pay: one flat price, or per seat. */ teamBilling: 'flat' | 'per_seat' };
+  features: { accounts: boolean; billing: boolean; /** Which payment gateways can take payment (empty when billing is off). */ billingProviders: ('stripe' | 'razorpay')[]; /** Administrators must use a second sign-in step. */ adminTwoFactor: boolean; /** How teams pay: one flat price, or per seat. */ teamBilling: 'flat' | 'per_seat' };
 }

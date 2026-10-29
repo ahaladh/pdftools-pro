@@ -35,7 +35,8 @@ import { SecurityKeyService } from './modules/auth/webauthn.js';
 import { AuditService } from './modules/auth/audit.js';
 import { accountRoutes } from './modules/account/routes.js';
 import { BillingService, type StripeClient } from './modules/billing/service.js';
-import { billingRoutes, webhookRoute } from './modules/billing/routes.js';
+import { billingRoutes, razorpayWebhookRoute, webhookRoute } from './modules/billing/routes.js';
+import { HttpRazorpay, type RazorpayClient } from './modules/billing/razorpay.js';
 import { TeamService } from './modules/teams/service.js';
 import { teamRoutes } from './modules/teams/routes.js';
 import { adminRoutes } from './modules/admin/routes.js';
@@ -45,7 +46,7 @@ import { Metrics, metricsHandler } from './ops/metrics.js';
 import { runChecks, storageCheck, type Check } from './ops/health.js';
 import { ConsoleMailer, SmtpMailer, UnconfiguredMailer, type Mailer } from './modules/mail/mailer.js';
 
-export interface AppDeps { env?: Env; store?: JobStore; log?: Logger; mailer?: Mailer; stripe?: StripeClient | null }
+export interface AppDeps { env?: Env; store?: JobStore; log?: Logger; mailer?: Mailer; stripe?: StripeClient | null; razorpay?: RazorpayClient | null }
 
 /** Point the Stripe SDK at another host (Stripe's own `stripe-mock`, or a test double); unset means the real Stripe API. */
 function stripeHost(base: string | undefined): Stripe.StripeConfig | undefined {
@@ -91,7 +92,10 @@ export async function createApp(deps: AppDeps = {}) {
 
   const mailer: Mailer = deps.mailer ?? (env.SMTP_URL ? new SmtpMailer(env.SMTP_URL, env.MAIL_FROM) : env.NODE_ENV === 'production' ? new UnconfiguredMailer() : new ConsoleMailer(log));
   const stripe: StripeClient | null = deps.stripe !== undefined ? deps.stripe : env.STRIPE_SECRET_KEY ? new Stripe(env.STRIPE_SECRET_KEY, stripeHost(env.STRIPE_API_BASE)) : null;
-  const billing = new BillingService(env, settings, log, accounts ? stripe : null);
+  // Razorpay is offered only when its key pair AND webhook secret are set: without the webhook a payment could never grant the plan.
+  const razorpay: RazorpayClient | null = deps.razorpay !== undefined ? deps.razorpay
+    : env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET && env.RAZORPAY_WEBHOOK_SECRET ? new HttpRazorpay(env.RAZORPAY_KEY_ID, env.RAZORPAY_KEY_SECRET, env.RAZORPAY_API_BASE) : null;
+  const billing = new BillingService(env, settings, log, accounts ? stripe : null, accounts ? razorpay : null);
 
   const mongoJobs = jobStore instanceof MongoJobStore ? jobStore : null;
   const teams = new TeamService(env, mailer, audit, log, { cancelSubscription: (t) => billing.cancelForDeletion(t) }, usage, settings);
@@ -132,6 +136,7 @@ export async function createApp(deps: AppDeps = {}) {
   // Stripe needs the exact raw bytes to verify its signature, so this precedes every body parser.
   // No identity, cookies or CORS reliance: the signature is the credential.
   if (accounts) app.use('/api/billing/webhook', express.raw({ type: 'application/json', limit: '1mb' }), webhookRoute(billing));
+  if (accounts) app.use('/api/billing/razorpay/webhook', express.raw({ type: 'application/json', limit: '1mb' }), razorpayWebhookRoute(billing));
 
   app.use(cookieParser());
   app.use(express.json({ limit: '100kb' }));
@@ -164,7 +169,7 @@ export async function createApp(deps: AppDeps = {}) {
     const cfg: PublicConfig = {
       brand: env.BRAND_NAME, maintenance: s.maintenance,
       limits: { maxFileMB: g.maxFileMB, maxFiles: g.maxFiles, maxPages: g.maxPages, retentionMinutes: g.retentionMinutes },
-      features: { accounts, billing: billing.enabled, adminTwoFactor: adminTwoFactorRequired(env), teamBilling: env.TEAM_BILLING },
+      features: { accounts, billing: billing.enabled, billingProviders: billing.providers, adminTwoFactor: adminTwoFactorRequired(env), teamBilling: env.TEAM_BILLING },
     };
     ok(res, cfg);
   });
@@ -174,7 +179,10 @@ export async function createApp(deps: AppDeps = {}) {
   });
   app.get('/api/plans', async (_req, res) => {
     const s = await settings.get();
-    ok(res, PLAN_IDS.map((id) => { const { stripePriceId, ...p } = s.plans[id]; return { ...p, purchasable: billing.enabled && !!stripePriceId && p.priceCents > 0 }; }));
+    ok(res, PLAN_IDS.map((id) => { const { stripePriceId, razorpayPlanId, ...p } = s.plans[id];
+      // Which gateways can actually sell this plan: the gateway must be configured AND the plan mapped to a price there.
+      const providers = p.priceCents > 0 ? billing.providers.filter((g) => (g === 'stripe' ? !!stripePriceId : !!razorpayPlanId)) : [];
+      return { ...p, purchasable: providers.length > 0, providers }; }));
   });
 
   const disabled = (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(new HttpError(503, 'accounts_disabled', 'Accounts are not enabled on this server.'));

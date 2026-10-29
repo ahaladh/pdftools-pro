@@ -74,7 +74,7 @@ export class TeamService {
       members: members.map((m: Doc): TeamMemberView => { const u = users.get(String(m.userId)); return { userId: String(m.userId), email: u?.email ?? '', name: u?.name ?? '', role: m.role, joinedAt: new Date(m.createdAt).toISOString(), you: String(m.userId) === String(user._id) }; }),
       invites,
       ...(await this.poolView(team, members, canManage)),
-      ...(member.role === 'owner' && b?.subscriptionId ? { subscription: { status: b.status, plan: b.plan, currentPeriodEnd: b.currentPeriodEnd?.toISOString(), cancelAtPeriodEnd: b.cancelAtPeriodEnd } } : {}),
+      ...(member.role === 'owner' && b?.subscriptionId ? { subscription: { status: b.status, plan: b.plan, currentPeriodEnd: b.currentPeriodEnd?.toISOString(), cancelAtPeriodEnd: b.cancelAtPeriodEnd, provider: b.provider ?? 'stripe' } } : {}),
       createdAt: new Date(team.createdAt).toISOString(),
     };
   }
@@ -276,7 +276,7 @@ export class TeamService {
         id: String(t._id), name: t.name, plan: t.plan, owner: { id: String(t.ownerId), email: email.get(String(t.ownerId)) ?? '(deleted account)' },
         members: n, seats: this.seatsOf(t), seatsUsed: n + (pending.get(String(t._id)) ?? 0),
         ...(pool ? { pool: { ...pool, ...(t.memberDailyCap ? { memberCap: t.memberDailyCap } : {}) } } : {}),
-        ...(b?.subscriptionId ? { subscription: { status: b.status, plan: b.plan, cancelAtPeriodEnd: b.cancelAtPeriodEnd } } : {}),
+        ...(b?.subscriptionId ? { subscription: { status: b.status, plan: b.plan, cancelAtPeriodEnd: b.cancelAtPeriodEnd, provider: b.provider ?? 'stripe' } } : {}),
         createdAt: new Date(t.createdAt).toISOString(),
       };
     }));

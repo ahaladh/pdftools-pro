@@ -60,9 +60,12 @@ describe('doctor: production configuration review', () => {
     const accounts = { ...GOOD, MONGODB_URI: 'mongodb://x', JWT_ACCESS_SECRET: JWT };
     const stripe = { STRIPE_SECRET_KEY: 'sk_test_x', STRIPE_WEBHOOK_SECRET: 'whsec_x', STRIPE_PRICE_PRO: 'price_x' };
     expect(by(checkConfig(loadEnv(accounts)), 'team billing')).toMatchObject({ level: 'pass', detail: expect.stringContaining('flat') });
-    expect(by(checkConfig(loadEnv({ ...accounts, ...stripe, TEAM_BILLING: 'per_seat' })), 'team billing')).toMatchObject({ level: 'pass', detail: expect.stringMatching(/per seat \(2 to 100 seats\).*per-seat price/) });
+    expect(by(checkConfig(loadEnv({ ...accounts, ...stripe, TEAM_BILLING: 'per_seat' })), 'team billing')).toMatchObject({ level: 'pass', detail: expect.stringMatching(/per seat \(2 to 100 seats\).*Stripe price.*once per seat/) });
     const noStripe = by(checkConfig(loadEnv({ ...accounts, TEAM_BILLING: 'per_seat' })), 'team billing');
-    expect(noStripe.level).toBe('warn'); expect(noStripe.detail).toMatch(/Stripe is not configured/);
+    expect(noStripe.level).toBe('warn'); expect(noStripe.detail).toMatch(/no payment gateway is configured/);
+    // Razorpay alone is enough to sell per-seat teams
+    const rz = { RAZORPAY_KEY_ID: 'rzp_x', RAZORPAY_KEY_SECRET: 's', RAZORPAY_WEBHOOK_SECRET: 'whsec_rz_x' };
+    expect(by(checkConfig(loadEnv({ ...accounts, ...rz, TEAM_BILLING: 'per_seat' })), 'team billing')).toMatchObject({ level: 'pass', detail: expect.stringMatching(/Razorpay plan.*once per seat/) });
     const bad = by(checkConfig(loadEnv({ ...accounts, ...stripe, TEAM_BILLING: 'per_seat', TEAM_MIN_SEATS: '30', TEAM_MAX_SEATS: '10' })), 'team billing');
     expect(bad.level).toBe('fail'); expect(bad.detail).toMatch(/no seat count would be valid/);
     expect(() => loadEnv({ ...accounts, TEAM_BILLING: 'monthly' })).toThrow(/TEAM_BILLING/);
@@ -70,6 +73,19 @@ describe('doctor: production configuration review', () => {
     expect(checkConfig(loadEnv({ ...accounts, ...stripe })).find((c) => c.name === 'stripe api base')).toBeUndefined();
     expect(by(checkConfig(loadEnv({ ...accounts, ...stripe, STRIPE_API_BASE: 'http://localhost:12111' })), 'stripe api base').level).toBe('fail'); // in production
     expect(by(checkConfig(loadEnv({ ...accounts, ...stripe, NODE_ENV: 'development', STRIPE_API_BASE: 'http://localhost:12111' })), 'stripe api base').level).toBe('warn');
+  });
+  it('Razorpay: needs key id, key secret and webhook secret together; a test double is flagged', () => {
+    const accounts = { ...GOOD, MONGODB_URI: 'mongodb://x', JWT_ACCESS_SECRET: JWT };
+    const rz = { RAZORPAY_KEY_ID: 'rzp_x', RAZORPAY_KEY_SECRET: 's', RAZORPAY_WEBHOOK_SECRET: 'whsec_rz_x' };
+    expect(by(checkConfig(loadEnv({ ...accounts, ...rz, RAZORPAY_PLAN_PRO: 'plan_x' })), 'billing')).toMatchObject({ level: 'pass', detail: 'Razorpay configured' });
+    expect(by(checkConfig(loadEnv({ ...accounts, ...rz })), 'razorpay plans').level).toBe('warn');
+    for (const missing of ['RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET', 'RAZORPAY_WEBHOOK_SECRET'] as const) {
+      const partial = { ...rz, [missing]: '' };
+      expect(by(checkConfig(loadEnv({ ...accounts, ...partial })), 'billing'), missing).toMatchObject({ level: 'fail', detail: expect.stringContaining('must all be set together') });
+    }
+    expect(by(checkConfig(loadEnv({ ...accounts, ...rz, STRIPE_SECRET_KEY: 'sk_test_x', STRIPE_WEBHOOK_SECRET: 'whsec_x' })), 'billing').detail).toBe('Stripe and Razorpay configured');
+    expect(by(checkConfig(loadEnv({ ...accounts, ...rz, RAZORPAY_API_BASE: 'http://localhost:9' })), 'razorpay api base').level).toBe('fail'); // production
+    expect(checkConfig(loadEnv({ ...accounts, ...rz })).find((c) => c.name === 'razorpay api base')).toBeUndefined();
   });
   it('requires Stripe key and webhook secret together; warns about leftovers', () => {
     expect(by(checkConfig(loadEnv({ ...GOOD, STRIPE_SECRET_KEY: 'sk_test_x' })), 'billing').level).toBe('fail');

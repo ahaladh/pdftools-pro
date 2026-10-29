@@ -1,12 +1,14 @@
 import type Stripe from 'stripe';
 import type { Logger } from 'pino';
-import type { PlanId } from '@pdftools/shared';
+import { createHash } from 'node:crypto';
+import type { BillingProvider, PlanId } from '@pdftools/shared';
 import type { Env } from '../../config/env.js';
 import { BillingEventModel, TeamModel, UserModel } from '../../db/models.js';
 import { HttpError } from '../../utils/errors.js';
 import type { UserDoc } from '../auth/service.js';
 import type { SettingsService } from '../settings/service.js';
 import { seatLimits } from './seats.js';
+import { mapRazorpayStatus, RazorpayError, verifyRazorpaySignature, type RazorpayClient, type RzSubscription } from './razorpay.js';
 
 /** Subset of the Stripe SDK we use, so tests can inject a fake client. */
 export type StripeClient = Pick<Stripe, 'customers' | 'checkout' | 'billingPortal' | 'subscriptions' | 'webhooks'>;
@@ -14,18 +16,47 @@ export type StripeClient = Pick<Stripe, 'customers' | 'checkout' | 'billingPorta
 const ENDED = new Set(['canceled', 'unpaid', 'incomplete_expired']);
 
 export class BillingService {
-  constructor(private env: Env, private settings: SettingsService, private log: Logger, readonly stripe: StripeClient | null) {}
+  constructor(private env: Env, private settings: SettingsService, private log: Logger, readonly stripe: StripeClient | null, readonly razorpay: RazorpayClient | null = null) {}
 
-  get enabled() { return !!this.stripe; }
+  get enabled() { return !!this.stripe || !!this.razorpay; }
+  /** The gateways this server can take payment through. */
+  get providers(): BillingProvider[] { return [...(this.stripe ? ['stripe' as const] : []), ...(this.razorpay ? ['razorpay' as const] : [])]; }
   private need(): StripeClient { if (!this.stripe) throw new HttpError(503, 'billing_not_configured', 'Billing is not configured on this server.'); return this.stripe; }
+  private needRz(): RazorpayClient { if (!this.razorpay) throw new HttpError(503, 'billing_not_configured', 'Razorpay is not configured on this server.'); return this.razorpay; }
 
-  async checkout(user: UserDoc, plan: PlanId): Promise<string> {
+  /** The gateway a purchase goes through: the one asked for, else Stripe when it is configured, else Razorpay. */
+  private pick(asked?: BillingProvider): BillingProvider {
+    if (!this.enabled) throw new HttpError(503, 'billing_not_configured', 'Billing is not configured on this server.');
+    if (asked) {
+      if (!this.providers.includes(asked)) throw new HttpError(400, 'provider_unavailable', `${asked === 'stripe' ? 'Stripe' : 'Razorpay'} is not available on this server.`);
+      return asked;
+    }
+    return this.providers[0]!;
+  }
+  /** Which gateway holds a person's or team's subscription (Stripe when unrecorded: every subscription from before Razorpay existed). */
+  private providerOf(holder: UserDoc): BillingProvider { return holder.billing?.provider === 'razorpay' ? 'razorpay' : 'stripe'; }
+
+  /** Create the Razorpay subscription and hand back its hosted payment page; the webhook grants the plan once the first payment lands. */
+  private async rzSubscribe(plan: PlanId, seats: number, notes: Record<string, string>, email: string): Promise<string> {
+    const rz = this.needRz();
+    const cfg = (await this.settings.get()).plans[plan];
+    if (!cfg?.razorpayPlanId || cfg.priceCents <= 0) throw new HttpError(400, 'plan_unavailable', 'This plan is not available for purchase with Razorpay.');
+    let sub: RzSubscription;
+    try { sub = await rz.createSubscription({ planId: cfg.razorpayPlanId, quantity: seats, totalCount: 120, notes: { ...notes, plan }, email }); }
+    catch (e) { this.log.error({ err: e }, 'razorpay: could not create the subscription'); throw new HttpError(502, 'billing_error', 'Could not start checkout. Please try again.'); }
+    if (!sub.short_url) throw new HttpError(502, 'billing_error', 'Could not start checkout.');
+    return sub.short_url;
+  }
+
+  async checkout(user: UserDoc, plan: PlanId, provider?: BillingProvider): Promise<string> {
+    const via = this.pick(provider);
+    if (user.billing?.subscriptionId && ['active', 'trialing', 'past_due'].includes(user.billing.status)) {
+      throw new HttpError(409, 'already_subscribed', 'You already have a subscription. Manage it from your account.');
+    }
+    if (via === 'razorpay') return this.rzSubscribe(plan, 1, { userId: String(user._id) }, user.email);
     const stripe = this.need();
     const cfg = (await this.settings.get()).plans[plan];
     if (!cfg?.stripePriceId || cfg.priceCents <= 0) throw new HttpError(400, 'plan_unavailable', 'This plan is not available for purchase.');
-    if (user.billing?.subscriptionId && ['active', 'trialing', 'past_due'].includes(user.billing.status)) {
-      throw new HttpError(409, 'already_subscribed', 'You already have a subscription. Manage it from the billing portal.');
-    }
     let customerId: string | undefined = user.billing?.customerId;
     if (!customerId) {
       const c = await stripe.customers.create({ email: user.email, metadata: { userId: String(user._id) } });
@@ -59,16 +90,18 @@ export class BillingService {
    * A team subscribes as itself: its own Stripe customer and subscription, so billing survives members and owners changing.
    * Per seat, the plan's price is charged for each seat bought; the payer may adjust the quantity on Stripe's page within the same limits.
    */
-  async checkoutTeam(team: UserDoc, owner: UserDoc, plan: PlanId, opts: { seats?: number; floor?: number } = {}): Promise<string> {
-    const stripe = this.need();
+  async checkoutTeam(team: UserDoc, owner: UserDoc, plan: PlanId, opts: { seats?: number; floor?: number; provider?: BillingProvider } = {}): Promise<string> {
+    const via = this.pick(opts.provider);
     if (!this.perSeat && opts.seats !== undefined) throw new HttpError(400, 'not_per_seat', 'This server charges teams a flat price, not per seat.');
     const floor = opts.floor ?? 1;
     const seats = this.perSeat ? this.checkSeats(opts.seats ?? seatLimits(this.env, floor).min, floor) : 1;
+    if (team.billing?.subscriptionId && ['active', 'trialing', 'past_due'].includes(team.billing.status)) {
+      throw new HttpError(409, 'already_subscribed', 'This team already has a subscription. Manage it from the team page.');
+    }
+    if (via === 'razorpay') return this.rzSubscribe(plan, seats, { teamId: String(team._id) }, owner.email);
+    const stripe = this.need();
     const cfg = (await this.settings.get()).plans[plan];
     if (!cfg?.stripePriceId || cfg.priceCents <= 0) throw new HttpError(400, 'plan_unavailable', 'This plan is not available for purchase.');
-    if (team.billing?.subscriptionId && ['active', 'trialing', 'past_due'].includes(team.billing.status)) {
-      throw new HttpError(409, 'already_subscribed', 'This team already has a subscription. Manage it from the billing portal.');
-    }
     let customerId: string | undefined = team.billing?.customerId;
     if (!customerId) {
       const c = await stripe.customers.create({ email: owner.email, name: team.name, metadata: { teamId: String(team._id) } });
@@ -96,10 +129,11 @@ export class BillingService {
    */
   async changeTeamSeats(team: UserDoc, seats: unknown, floor: number): Promise<number> {
     if (!this.perSeat) throw new HttpError(409, 'not_per_seat', 'This server charges teams a flat price, so there are no seats to change.');
-    const stripe = this.need();
     const b = team.billing;
     if (!b?.subscriptionId || !['active', 'trialing'].includes(b.status)) throw new HttpError(409, 'no_subscription', 'Subscribe the team first; seats can be changed once there is an active subscription.');
     const wanted = this.checkSeats(seats, floor);
+    if (this.providerOf(team) === 'razorpay') return this.changeSeatsRazorpay(team, b.subscriptionId, wanted);
+    const stripe = this.need();
     let current: Stripe.Subscription, updated: Stripe.Subscription;
     try {
       current = await stripe.subscriptions.retrieve(b.subscriptionId);
@@ -120,13 +154,47 @@ export class BillingService {
     return q;
   }
 
+  /** Razorpay charges the difference when the quantity changes; a refused payment leaves the seats as they were. */
+  private async changeSeatsRazorpay(team: UserDoc, subscriptionId: string, wanted: number): Promise<number> {
+    const rz = this.needRz();
+    if ((team.billing?.seats ?? 0) === wanted) return wanted;
+    let updated: RzSubscription;
+    try { updated = await rz.updateQuantity(subscriptionId, wanted); }
+    catch (e) {
+      this.log.error({ err: e }, 'razorpay: could not change team seats');
+      if (e instanceof RazorpayError && e.status >= 400 && e.status < 500) throw new HttpError(402, 'payment_failed', 'The seats could not be changed (the payment method was refused or the change is not allowed right now). Nothing was charged.');
+      throw new HttpError(502, 'billing_error', 'Could not change the number of seats right now. Please try again.');
+    }
+    const q = updated.quantity ?? wanted;
+    team.set('billing.seats', q);
+    team.set('billing.eventAt', Math.floor(Date.now() / 1000));
+    await team.save();
+    return q;
+  }
+
+  /**
+   * Razorpay has no customer portal: stop renewal from here instead. The plan stays until the end of the paid period; the webhook
+   * that Razorpay sends at the end is what takes the plan away. Stripe subscriptions are managed from Stripe's portal.
+   */
+  async cancelAtPeriodEnd(holder: UserDoc): Promise<void> {
+    const b = holder.billing;
+    if (this.providerOf(holder) !== 'razorpay') throw new HttpError(409, 'use_portal', 'This subscription is managed from the billing portal.');
+    if (!b?.subscriptionId || !['active', 'trialing', 'past_due'].includes(b.status)) throw new HttpError(409, 'no_subscription', 'There is no active subscription to cancel.');
+    try { await this.needRz().cancel(b.subscriptionId, true); }
+    catch (e) { this.log.error({ err: e }, 'razorpay: could not cancel'); throw new HttpError(502, 'billing_error', 'Could not cancel the subscription right now. Please try again.'); }
+    holder.set('billing.cancelAtPeriodEnd', true);
+    await holder.save();
+  }
+
   async portalTeam(team: UserDoc): Promise<string> {
+    if (this.providerOf(team) === 'razorpay' && team.billing?.subscriptionId) throw new HttpError(409, 'no_portal', 'This subscription is paid through Razorpay, which has no billing portal. Use "Cancel subscription" to stop renewal.');
     const stripe = this.need();
     if (!team.billing?.customerId) throw new HttpError(400, 'no_customer', 'This team has no billing account yet.');
     return (await stripe.billingPortal.sessions.create({ customer: team.billing.customerId, return_url: `${this.env.PUBLIC_URL.replace(/\/$/, '')}/account` })).url;
   }
 
   async portal(user: UserDoc): Promise<string> {
+    if (this.providerOf(user) === 'razorpay' && user.billing?.subscriptionId) throw new HttpError(409, 'no_portal', 'This subscription is paid through Razorpay, which has no billing portal. Use "Cancel subscription" to stop renewal.');
     const stripe = this.need();
     if (!user.billing?.customerId) throw new HttpError(400, 'no_customer', 'No billing account yet.');
     const s = await stripe.billingPortal.sessions.create({ customer: user.billing.customerId, return_url: `${this.env.PUBLIC_URL.replace(/\/$/, '')}/account` });
@@ -135,7 +203,13 @@ export class BillingService {
 
   /** Works for a person or a team: both carry the same billing block. */
   async cancelForDeletion(holder: UserDoc) {
-    if (!this.stripe || !holder.billing?.subscriptionId || ENDED.has(holder.billing.status)) return;
+    if (!holder.billing?.subscriptionId || ENDED.has(holder.billing.status)) return;
+    if (this.providerOf(holder) === 'razorpay') {
+      if (!this.razorpay) throw new Error('this subscription is with Razorpay, which is not configured here, so it cannot be cancelled');
+      await this.razorpay.cancel(holder.billing.subscriptionId, false);
+      return;
+    }
+    if (!this.stripe) return;
     await this.stripe.subscriptions.cancel(holder.billing.subscriptionId);
   }
 
@@ -172,7 +246,7 @@ export class BillingService {
           ? await this.teamFor({ teamId: ref.slice(5) }, typeof s.customer === 'string' ? s.customer : undefined)
           : await this.userFor({ userId: ref }, typeof s.customer === 'string' ? s.customer : undefined);
         if (!user) return void this.log.warn({ event: event.id }, 'checkout completed for unknown user');
-        user.billing = { ...(user.billing?.toObject?.() ?? user.billing ?? {}), customerId: typeof s.customer === 'string' ? s.customer : user.billing?.customerId, subscriptionId: typeof s.subscription === 'string' ? s.subscription : user.billing?.subscriptionId };
+        user.billing = { ...(user.billing?.toObject?.() ?? user.billing ?? {}), provider: 'stripe', customerId: typeof s.customer === 'string' ? s.customer : user.billing?.customerId, subscriptionId: typeof s.subscription === 'string' ? s.subscription : user.billing?.subscriptionId };
         await user.save();
         return;
       }
@@ -199,7 +273,7 @@ export class BillingService {
         const status = event.type === 'customer.subscription.deleted' ? 'canceled' : sub.status;
         const periodEnd = (sub as unknown as { current_period_end?: number }).current_period_end;
         user.billing = {
-          customerId: typeof sub.customer === 'string' ? sub.customer : user.billing?.customerId, subscriptionId: sub.id, status,
+          provider: 'stripe', customerId: typeof sub.customer === 'string' ? sub.customer : user.billing?.customerId, subscriptionId: sub.id, status,
           plan: matched ?? user.billing?.plan, currentPeriodEnd: periodEnd ? new Date(periodEnd * 1000) : undefined, cancelAtPeriodEnd: sub.cancel_at_period_end,
           eventAt: typeof event.created === 'number' ? event.created : user.billing?.eventAt,
           // For a team the subscription's quantity is the seats it has paid for.
@@ -213,5 +287,60 @@ export class BillingService {
       }
       default: return;
     }
+  }
+
+  /**
+   * Razorpay webhooks: verify the signature over the raw body, apply each event once (Razorpay's event id header), ignore events older
+   * than one already applied. The subscription says who it belongs to in its notes (we put the user or team id there at checkout).
+   */
+  async handleRazorpayWebhook(raw: Buffer, signature: string | undefined, eventId: string | undefined): Promise<{ duplicate: boolean }> {
+    if (!this.razorpay || !this.env.RAZORPAY_WEBHOOK_SECRET) throw new HttpError(503, 'billing_not_configured', 'Razorpay webhooks are not configured.');
+    if (!verifyRazorpaySignature(raw, signature, this.env.RAZORPAY_WEBHOOK_SECRET)) throw new HttpError(400, 'invalid_signature', 'Invalid webhook signature.');
+    let body: { event?: string; created_at?: number; payload?: { subscription?: { entity?: RzSubscription } } };
+    try { body = JSON.parse(raw.toString('utf8')); } catch { throw new HttpError(400, 'invalid_body', 'Malformed webhook body.'); }
+    const id = `rz:${eventId || createHash('sha256').update(raw).digest('hex')}`;
+    try { await BillingEventModel.create({ _id: id, type: String(body.event ?? 'unknown') }); }
+    catch (e) { if ((e as { code?: number }).code === 11000) return { duplicate: true }; throw e; }
+    try { await this.applyRazorpay(id, body); }
+    catch (e) { await BillingEventModel.deleteOne({ _id: id }); throw e; } // let Razorpay retry
+    return { duplicate: false };
+  }
+
+  private async applyRazorpay(id: string, body: { event?: string; created_at?: number; payload?: { subscription?: { entity?: RzSubscription } } }) {
+    if (!body.event?.startsWith('subscription.')) return;
+    const sub = body.payload?.subscription?.entity;
+    if (!sub?.id) return;
+    const notes = (Array.isArray(sub.notes) ? {} : sub.notes ?? {}) as Record<string, string>;
+    const team = await this.teamFor(notes, undefined) ?? (await TeamModel.findOne({ 'billing.subscriptionId': sub.id }));
+    const holder = team ?? (await this.userFor(notes, undefined)) ?? (await UserModel.findOne({ 'billing.subscriptionId': sub.id }));
+    if (!holder) return void this.log.warn({ event: id }, 'razorpay: subscription event for an unknown user or team');
+    const b = holder.billing;
+    if (typeof body.created_at === 'number' && body.created_at < (b?.eventAt ?? 0)) {
+      return void this.log.info({ event: id, type: body.event }, 'razorpay: stale subscription event ignored (a newer one was already applied)');
+    }
+    // A second subscription must not take over a live one (for example an old payment link that gets paid after the buyer subscribed elsewhere).
+    if (b?.subscriptionId && b.subscriptionId !== sub.id && ['active', 'trialing', 'past_due'].includes(b.status)) {
+      return void this.log.error({ event: id, subscription: sub.id, existing: b.subscriptionId }, 'razorpay: a different subscription was paid while one is already active; ignored. Refund or cancel the extra one in the Razorpay dashboard');
+    }
+    const status = mapRazorpayStatus(sub.status);
+    if (!status) return; // created / authenticated: nothing paid yet
+    const plans = (await this.settings.get()).plans;
+    const matched = (['pro', 'business'] as const).find((p) => plans[p].razorpayPlanId && plans[p].razorpayPlanId === sub.plan_id);
+    if (!matched && status !== 'canceled' && status !== 'unpaid') {
+      this.log.error({ event: id, planId: sub.plan_id }, 'razorpay: subscription uses a plan that is not mapped to a PDFTools plan; plan unchanged');
+      return;
+    }
+    const sameSub = b?.subscriptionId === sub.id;
+    holder.billing = {
+      provider: 'razorpay', customerId: sub.customer_id ?? (sameSub ? b?.customerId : undefined), subscriptionId: sub.id, status,
+      plan: matched ?? b?.plan, currentPeriodEnd: sub.current_end ? new Date(sub.current_end * 1000) : sameSub ? b?.currentPeriodEnd : undefined,
+      // Razorpay does not report "cancel at period end" on the subscription: keep what our own cancel call recorded.
+      cancelAtPeriodEnd: status === 'canceled' ? false : sameSub ? !!b?.cancelAtPeriodEnd : false,
+      eventAt: typeof body.created_at === 'number' ? body.created_at : b?.eventAt,
+      ...(team ? { seats: sub.quantity ?? b?.seats } : {}),
+    };
+    if (ENDED.has(status)) holder.plan = 'free';
+    else if (matched) holder.plan = matched; // active, or past_due while Razorpay retries
+    await holder.save();
   }
 }

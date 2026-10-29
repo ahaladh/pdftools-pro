@@ -296,6 +296,7 @@ function SettingsTab() {
                   <TextInput type="number" min={0} value={p[f.key] as number} onChange={(e) => setPlan(id, { [f.key]: Number(e.target.value) } as Partial<PlanConfig>)} /></label>
               ))}
               <label className="block text-sm"><span className="mb-1 block text-slate-700">Stripe price ID</span><TextInput value={p.stripePriceId ?? ''} disabled={id === 'guest' || id === 'free'} onChange={(e) => setPlan(id, { stripePriceId: e.target.value || undefined })} /></label>
+              <label className="block text-sm"><span className="mb-1 block text-slate-700">Razorpay plan ID</span><TextInput value={p.razorpayPlanId ?? ''} disabled={id === 'guest' || id === 'free'} onChange={(e) => setPlan(id, { razorpayPlanId: e.target.value || undefined })} /></label>
             </div>
             <fieldset className="mt-4"><legend className="text-sm font-medium">Blocked (premium) tools for this plan</legend>
               <div className="mt-2 grid gap-1 sm:grid-cols-2 lg:grid-cols-4">{TOOLS.map((t) => <label key={t.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={p.blockedTools.includes(t.id)} onChange={() => setPlan(id, { blockedTools: toggle(p.blockedTools, t.id) })} />{t.name}</label>)}</div></fieldset>

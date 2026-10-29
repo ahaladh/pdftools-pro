@@ -144,6 +144,16 @@ const schema = z.object({
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   STRIPE_PRICE_PRO: z.string().optional(),
   STRIPE_PRICE_BUSINESS: z.string().optional(),
+  // --- billing (Razorpay): a second gateway beside Stripe, for sellers in India and buyers who pay by UPI, Indian cards or netbanking.
+  // Needs the key pair AND the webhook secret. Unset => Razorpay is simply not offered. ---
+  RAZORPAY_KEY_ID: optional(z.string().min(1)),
+  RAZORPAY_KEY_SECRET: optional(z.string().min(1)),
+  RAZORPAY_WEBHOOK_SECRET: optional(z.string().min(8)),
+  /** Razorpay plan ids (dashboard > Subscriptions > Plans) that sell Pro and Business. Can also be set in the admin settings. */
+  RAZORPAY_PLAN_PRO: optional(z.string().min(1)),
+  RAZORPAY_PLAN_BUSINESS: optional(z.string().min(1)),
+  /** Talk to Razorpay at this URL instead of api.razorpay.com: for a test double. Never set it in production. */
+  RAZORPAY_API_BASE: optional(z.string().url()),
 
   // --- default entitlements (admin can override at runtime via settings) ---
   DAILY_OPS_GUEST: num(30),

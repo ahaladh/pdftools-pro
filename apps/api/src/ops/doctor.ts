@@ -52,19 +52,27 @@ export function checkConfig(env: Env): DoctorCheck[] {
     if (env.TWO_FACTOR_KEY_PREVIOUS.length) add('two-factor key rotation', 'warn', `${env.TWO_FACTOR_KEY_PREVIOUS.length} previous key(s) configured: a rotation is in progress. Run \`rotate-2fa status\`; once everything is on the current key, remove TWO_FACTOR_KEY_PREVIOUS`);
     {
       const stripeOn = !!env.STRIPE_SECRET_KEY && !!env.STRIPE_WEBHOOK_SECRET;
+      const razorpayOn = !!env.RAZORPAY_KEY_ID && !!env.RAZORPAY_KEY_SECRET && !!env.RAZORPAY_WEBHOOK_SECRET;
       const bad = env.TEAM_BILLING === 'per_seat' && env.TEAM_MIN_SEATS > env.TEAM_MAX_SEATS;
-      add('team billing', bad ? 'fail' : env.TEAM_BILLING === 'per_seat' && !stripeOn ? 'warn' : 'pass',
+      add('team billing', bad ? 'fail' : env.TEAM_BILLING === 'per_seat' && !stripeOn && !razorpayOn ? 'warn' : 'pass',
         bad ? `TEAM_MIN_SEATS (${env.TEAM_MIN_SEATS}) is above TEAM_MAX_SEATS (${env.TEAM_MAX_SEATS}): no seat count would be valid`
-          : env.TEAM_BILLING === 'per_seat' ? (stripeOn ? `per seat (${env.TEAM_MIN_SEATS} to ${env.TEAM_MAX_SEATS} seats): the plan's Stripe price must be a per-seat price` : 'TEAM_BILLING=per_seat but Stripe is not configured: teams cannot subscribe')
+          : env.TEAM_BILLING === 'per_seat' ? (stripeOn || razorpayOn ? `per seat (${env.TEAM_MIN_SEATS} to ${env.TEAM_MAX_SEATS} seats): the plan's ${[stripeOn && 'Stripe price', razorpayOn && 'Razorpay plan'].filter(Boolean).join(' and ')} is charged once per seat (the quantity)` : 'TEAM_BILLING=per_seat but no payment gateway is configured: teams cannot subscribe')
             : 'flat price; seats come from TEAM_SEATS_*');
     }
+    if (env.RAZORPAY_API_BASE) add('razorpay api base', prod ? 'fail' : 'warn', `RAZORPAY_API_BASE=${env.RAZORPAY_API_BASE}: Razorpay calls go there instead of api.razorpay.com (test double); never use in production`);
     if (env.STRIPE_API_BASE) add('stripe api base', prod ? 'fail' : 'warn', `STRIPE_API_BASE=${env.STRIPE_API_BASE}: Stripe calls go there instead of api.stripe.com (test double); never use in production`);
     add('admin two-step sign-in', adminTwoFactorRequired(env) ? 'pass' : prod ? 'warn' : 'pass', adminTwoFactorRequired(env) ? 'required for administrators' : prod ? 'REQUIRE_ADMIN_2FA=false: administrators can use the admin area with just a password (use only briefly, to recover)' : 'off (default outside production)');
     add('verified email for checkout', env.REQUIRE_VERIFIED_EMAIL ? 'pass' : prod ? 'warn' : 'pass', env.REQUIRE_VERIFIED_EMAIL ? 'required' : 'REQUIRE_VERIFIED_EMAIL is off: an unconfirmed address can start a paid checkout');
     add('bootstrap admin', env.ADMIN_PASSWORD ? 'warn' : 'pass', env.ADMIN_PASSWORD ? 'ADMIN_PASSWORD is still set: remove it after the first start' : 'not set');
   }
   const stripeBits = [env.STRIPE_SECRET_KEY, env.STRIPE_WEBHOOK_SECRET].filter(Boolean).length;
-  add('billing', stripeBits === 1 ? 'fail' : 'pass', stripeBits === 2 ? 'Stripe configured' : stripeBits === 0 ? 'not configured (checkout disabled)' : 'STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET must be set together');
+  const rzBits = [env.RAZORPAY_KEY_ID, env.RAZORPAY_KEY_SECRET, env.RAZORPAY_WEBHOOK_SECRET].filter(Boolean).length;
+  const gateways = [stripeBits === 2 && 'Stripe', rzBits === 3 && 'Razorpay'].filter(Boolean).join(' and ');
+  add('billing', stripeBits === 1 || rzBits === 1 || rzBits === 2 ? 'fail' : 'pass',
+    stripeBits === 1 ? 'STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET must be set together'
+      : rzBits === 1 || rzBits === 2 ? 'RAZORPAY_KEY_ID, RAZORPAY_KEY_SECRET and RAZORPAY_WEBHOOK_SECRET must all be set together (without the webhook secret a payment could never grant the plan)'
+        : gateways ? `${gateways} configured` : 'not configured (checkout disabled)');
+  if (rzBits === 3 && !env.RAZORPAY_PLAN_PRO && !env.RAZORPAY_PLAN_BUSINESS) add('razorpay plans', 'warn', 'no Razorpay plan ids in env (they can still be set in the admin settings)');
   if (stripeBits === 2 && !env.STRIPE_PRICE_PRO && !env.STRIPE_PRICE_BUSINESS) add('billing prices', 'warn', 'no Stripe price ids in env (they can still be set in the admin settings)');
   if (env.QUEUE_DRIVER === 'inline' && env.WORKER_CONCURRENCY > 4) add('inline concurrency', 'warn', 'many inline jobs share the API container; consider QUEUE_DRIVER=bullmq with workers');
   return out;

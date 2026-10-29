@@ -216,6 +216,7 @@ Going back to `flat` returns seats to `TEAM_SEATS_*` at once.
 | `METRICS_TOKEN` | change in env and in Prometheus's token file | scraping fails until both match |
 | MongoDB/Redis passwords | update the server, then the URIs, restart API and workers | brief downtime |
 | Stripe keys / webhook secret | roll in the Stripe dashboard, update env, restart | webhooks with the old secret are rejected (Stripe retries) |
+| Razorpay key / webhook secret | regenerate in the Razorpay dashboard, update env, restart | webhooks signed with the old secret are rejected (Razorpay retries) |
 | `TWO_FACTOR_KEY` | the procedure above (`TWO_FACTOR_KEY_PREVIOUS`, `rotate-2fa`) | none for users |
 | Admin password | admin → change password | other sessions signed out |
 
@@ -241,6 +242,20 @@ Measured once, on a 12-thread development PC with MongoDB, Redis, the API and th
 | 2 workers × 2 | 60 | 9.5 | 6.3 s / 6.8 s | 0 |
 
 What it shows: submitting, polling and downloading stay in the tens of milliseconds at 60 users, and no request failed; throughput is capped by worker slots (flat from 5 to 60 users, then ~1.75× with a second worker), so extra users wait in the queue instead of failing. Size workers from this: slots needed ≈ peak jobs/s × seconds per job. Still untested: heavy tools (OCR, Office conversion, big files), real network, a managed MongoDB/Redis, and sustained hours-long load.
+
+## Razorpay (selling from India, and to buyers worldwide)
+
+Use it next to Stripe or instead of it. Set up in the Razorpay dashboard:
+1. Activate your account; for buyers outside India request **International Payments** (cards in other currencies), and ask support whether **recurring** charges in a currency other than INR are allowed for you. If they are not, international buyers will not be able to subscribe through Razorpay.
+2. *Subscriptions > Plans*: create one **monthly** plan for Pro and one for Business, with the price and currency you want to charge (the plan amount is what Razorpay bills; keep it equal to the price shown on the pricing page). For per-seat teams the plan price is **per seat**.
+3. *Settings > Webhooks*: URL `<PUBLIC_URL>/api/billing/razorpay/webhook`, a secret of your choice, events `subscription.authenticated`, `activated`, `charged`, `pending`, `halted`, `paused`, `resumed`, `cancelled`, `completed`, `updated`.
+4. Env: `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` (all three, or Razorpay is not offered), `RAZORPAY_PLAN_PRO`, `RAZORPAY_PLAN_BUSINESS` (or enter the plan ids in *Admin > Settings*). Run `node apps/api/dist/doctor.js`.
+
+How it behaves: checkout creates the subscription and sends the buyer to Razorpay's page; **the plan is granted when Razorpay's `activated`/`charged` webhook arrives** (a buyer who pays is not redirected back, so the account page may need a refresh). A failed renewal (`pending`) keeps access while Razorpay retries; `halted`/`paused`/`cancelled`/`completed`/`expired` end it. There is no customer portal, so people stop renewal with **Cancel subscription** on their account (or the team page); the plan then runs to the end of the paid period. Each event is applied once (Razorpay's event id) and an older event arriving late is ignored.
+
+Support: *"I paid and have no plan"* — search the API log for `razorpay:` lines. Common causes: webhook not reaching the server or failing signature (HTTP 400 in Razorpay's webhook log), a plan id not mapped to Pro/Business (`not mapped to a PDFTools plan`), or the payment still pending. *"Charged twice"* — an old payment link was paid after another subscription became active; the log says `a different subscription was paid while one is already active`; refund or cancel the extra subscription in the Razorpay dashboard (the app deliberately does not touch it).
+
+**Not verified against the real Razorpay** (see FEATURES.md): the request and webhook shapes are written from Razorpay's public documentation and tested against a fake server. Before going live, make one real test-mode purchase end to end, a seat change, a failed card and a cancellation.
 
 ## Routine checklist
 

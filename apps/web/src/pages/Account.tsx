@@ -34,6 +34,8 @@ export default function Account() {
 
   const saveName = useMutation({ mutationFn: () => api.me.update(name), onSuccess: (u) => { setUser(u); setMsg('Profile saved.'); } });
   const portal = useMutation({ mutationFn: api.billing.portal, onSuccess: (r) => { window.location.href = r.url; } });
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const cancelSub = useMutation({ mutationFn: api.billing.cancel, onSuccess: async () => { setConfirmCancel(false); setUser(await api.me.get()); } });
 
   const pw = useForm<z.input<typeof changePasswordSchema>>({ resolver: zodResolver(changePasswordSchema) });
   const [pwMsg, setPwMsg] = useState<string | null>(null);
@@ -79,10 +81,18 @@ export default function Account() {
             </>
           )}
           <div className="mt-5 flex flex-wrap gap-2">
-            {cfg.data?.features.billing && sub && <Button variant="secondary" onClick={() => portal.mutate()} disabled={portal.isPending}>Manage billing</Button>}
+            {cfg.data?.features.billing && sub && sub.provider !== 'razorpay' && <Button variant="secondary" onClick={() => portal.mutate()} disabled={portal.isPending}>Manage billing</Button>}
+            {sub?.provider === 'razorpay' && sub.status !== 'canceled' && (sub.cancelAtPeriodEnd
+              ? <p role="status" className="self-center text-sm text-slate-700">Your subscription will not renew{sub.currentPeriodEnd ? `; ${user.effectivePlan === 'free' ? 'it ended' : 'your plan runs until'} ${new Date(sub.currentPeriodEnd).toLocaleDateString()}` : ''}.</p>
+              : confirmCancel
+                ? <span className="flex items-center gap-2 text-sm">Stop renewing at the end of this period?
+                    <Button variant="secondary" onClick={() => cancelSub.mutate()} disabled={cancelSub.isPending}>Yes, cancel renewal</Button>
+                    <Button variant="ghost" onClick={() => setConfirmCancel(false)}>Keep it</Button></span>
+                : <Button variant="secondary" onClick={() => setConfirmCancel(true)}>Cancel subscription</Button>)}
             {user.effectivePlan !== 'business' && <Link to="/pricing" className={buttonClass()}>{user.effectivePlan === 'free' ? 'Upgrade' : 'See plans'}</Link>}
           </div>
           {portal.error && <p role="alert" className="mt-2 text-sm text-red-600">{(portal.error as Error).message}</p>}
+          {cancelSub.error && <p role="alert" className="mt-2 text-sm text-red-600">{(cancelSub.error as Error).message}</p>}
         </Card>
 
         <Card className="p-6">

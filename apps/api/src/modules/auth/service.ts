@@ -32,7 +32,7 @@ export function userView(u: UserDoc, extra?: { effectivePlan: PlanId; team?: { i
     id: String(u._id), email: u.email, name: u.name ?? '', role: u.role, plan: u.plan as PlanId, createdAt: new Date(u.createdAt).toISOString(),
     emailVerified: !!u.emailVerifiedAt, twoFactorEnabled: secondFactorOn(u), totpEnabled: hasTotp(u), securityKeys: u.securityKeys?.length ?? 0,
     effectivePlan: extra?.effectivePlan ?? (u.plan as PlanId), ...(extra?.team ? { team: extra.team } : {}),
-    ...(b?.subscriptionId ? { subscription: { status: b.status, plan: b.plan, currentPeriodEnd: b.currentPeriodEnd?.toISOString(), cancelAtPeriodEnd: b.cancelAtPeriodEnd } } : {}),
+    ...(b?.subscriptionId ? { subscription: { status: b.status, plan: b.plan, currentPeriodEnd: b.currentPeriodEnd?.toISOString(), cancelAtPeriodEnd: b.cancelAtPeriodEnd, provider: b.provider ?? 'stripe' } } : {}),
   };
 }
 

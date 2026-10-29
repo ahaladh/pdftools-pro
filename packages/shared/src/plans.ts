@@ -24,9 +24,14 @@ export const planConfigSchema = z.object({
   priceCents: z.number().int().min(0).max(10_000_000),
   currency: z.string().length(3),
   stripePriceId: z.string().max(100).optional(),
+  /** The Razorpay plan (created in the Razorpay dashboard, with the price and currency charged) that sells this plan. */
+  razorpayPlanId: z.string().max(100).optional(),
   features: z.array(z.string().max(120)).max(20),
 });
 export type PlanConfig = z.infer<typeof planConfigSchema>;
+/** The payment gateways a deployment can sell through. */
+export const BILLING_PROVIDERS = ['stripe', 'razorpay'] as const;
+export type BillingProvider = (typeof BILLING_PROVIDERS)[number];
 
 export const appSettingsSchema = z.object({
   maintenance: z.boolean(),
@@ -44,7 +49,7 @@ export interface UserView {
   name: string;
   role: Role;
   plan: PlanId;
-  subscription?: { status: string; plan: PlanId; currentPeriodEnd?: string; cancelAtPeriodEnd?: boolean };
+  subscription?: { status: string; plan: PlanId; currentPeriodEnd?: string; cancelAtPeriodEnd?: boolean; provider?: BillingProvider };
   createdAt: string;
   /** The user has proven control of the email address. */
   emailVerified: boolean;
@@ -69,7 +74,7 @@ export interface AdminTeamRow {
   members: number; seats: number; /** Members plus pending invitations. */ seatsUsed: number;
   /** Today's shared allowance (paid plans only). */
   pool?: { opsToday: number; limit: number; memberCap?: number };
-  subscription?: { status: string; plan?: string; cancelAtPeriodEnd?: boolean };
+  subscription?: { status: string; plan?: string; cancelAtPeriodEnd?: boolean; provider?: BillingProvider };
   createdAt: string;
 }
 export interface AdminTeamDetail extends AdminTeamRow {
@@ -96,7 +101,7 @@ export interface TeamView {
    */
   pool?: { opsToday: number; limit: number; perMember: number; /** Most operations any one person may draw from the pool in a day (unset: no limit). */ memberCap?: number; /** Owners and admins only. */ byMember?: { userId: string; ops: number }[] };
   /** Billing state: owner only. */
-  subscription?: { status: string; plan: PlanId; currentPeriodEnd?: string; cancelAtPeriodEnd?: boolean };
+  subscription?: { status: string; plan: PlanId; currentPeriodEnd?: string; cancelAtPeriodEnd?: boolean; provider?: BillingProvider };
   createdAt: string;
 }
 

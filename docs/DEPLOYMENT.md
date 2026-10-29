@@ -21,7 +21,7 @@ This repository was developed on a machine **without a usable Docker daemon, roo
 | Graceful shutdown (SIGTERM mid-job), health/readiness semantics, worker crash recovery, migrations (locking, rollback guard) | behaviour behind your specific load balancer |
 | Prometheus alert rules reference only metrics/labels that exist | loading the rules into a real Prometheus (`promtool` unavailable), Alertmanager routing, the blackbox probe |
 | Prerendered pages for 29 routes; crawler view with JavaScript off; sitemap/robots | Search engines actually indexing them |
-| `doctor` (config review, engine versions, kernel memory limits actually enforced) and the post-deploy `smoke` script | Stripe (test or live), SMTP delivery |
+| `doctor` (config review, engine versions, kernel memory limits actually enforced) and the post-deploy `smoke` script | Stripe and Razorpay (test or live), SMTP delivery |
 
 Always finish a deployment with `doctor` and `smoke` (below): they check the real system, not a model of it.
 

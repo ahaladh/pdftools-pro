@@ -497,11 +497,11 @@ describe('account deletion and restart reconciliation', () => {
 describe('authorization matrix (accounts mode)', () => {
   const PUBLIC = ['GET /api/config', 'GET /api/openapi.json', 'GET /api/plans', 'GET /api/tools', 'GET /health', 'GET /ready'];
   const AUTH_FLOW = ['POST /api/auth/forgot-password', 'POST /api/auth/login', 'POST /api/auth/login/2fa', 'POST /api/auth/login/2fa/key', 'POST /api/auth/login/2fa/key/options', 'POST /api/auth/logout', 'POST /api/auth/refresh', 'POST /api/auth/register', 'POST /api/auth/reset-password', 'POST /api/auth/verify-email'];
-  const USER = ['POST /api/billing/team/seats', 'PATCH /api/teams/mine/settings', 'DELETE /api/me/security-keys/:id', 'GET /api/me/security-keys', 'POST /api/me/security-keys', 'POST /api/me/security-keys/options', 'DELETE /api/teams/mine', 'DELETE /api/teams/mine/invites/:id', 'DELETE /api/teams/mine/members/:userId', 'GET /api/teams/mine', 'PATCH /api/teams/mine', 'PATCH /api/teams/mine/members/:userId', 'POST /api/billing/team/checkout', 'POST /api/billing/team/portal', 'POST /api/teams', 'POST /api/teams/invites/accept', 'POST /api/teams/mine/invites', 'POST /api/teams/mine/leave', 'POST /api/teams/mine/transfer', 'DELETE /api/auth/sessions/:id', 'GET /api/auth/sessions', 'POST /api/auth/resend-verification', 'POST /api/auth/sessions/revoke-others', 'POST /api/me/2fa/disable', 'POST /api/me/2fa/enable', 'POST /api/me/2fa/recovery-codes', 'POST /api/me/2fa/setup', 'DELETE /api/me', 'GET /api/me', 'GET /api/me/jobs', 'GET /api/me/usage', 'PATCH /api/me', 'POST /api/billing/checkout', 'POST /api/billing/portal', 'POST /api/me/password'];
+  const USER = ['POST /api/billing/cancel', 'POST /api/billing/team/cancel', 'POST /api/billing/team/seats', 'PATCH /api/teams/mine/settings', 'DELETE /api/me/security-keys/:id', 'GET /api/me/security-keys', 'POST /api/me/security-keys', 'POST /api/me/security-keys/options', 'DELETE /api/teams/mine', 'DELETE /api/teams/mine/invites/:id', 'DELETE /api/teams/mine/members/:userId', 'GET /api/teams/mine', 'PATCH /api/teams/mine', 'PATCH /api/teams/mine/members/:userId', 'POST /api/billing/team/checkout', 'POST /api/billing/team/portal', 'POST /api/teams', 'POST /api/teams/invites/accept', 'POST /api/teams/mine/invites', 'POST /api/teams/mine/leave', 'POST /api/teams/mine/transfer', 'DELETE /api/auth/sessions/:id', 'GET /api/auth/sessions', 'POST /api/auth/resend-verification', 'POST /api/auth/sessions/revoke-others', 'POST /api/me/2fa/disable', 'POST /api/me/2fa/enable', 'POST /api/me/2fa/recovery-codes', 'POST /api/me/2fa/setup', 'DELETE /api/me', 'GET /api/me', 'GET /api/me/jobs', 'GET /api/me/usage', 'PATCH /api/me', 'POST /api/billing/checkout', 'POST /api/billing/portal', 'POST /api/me/password'];
   const ADMIN = ['DELETE /api/admin/teams/:id', 'GET /api/admin/teams', 'GET /api/admin/teams/:id', 'POST /api/admin/teams/:id/transfer', 'GET /api/admin/audit', 'GET /api/admin/dashboard', 'GET /api/admin/jobs', 'GET /api/admin/settings', 'GET /api/admin/usage', 'GET /api/admin/users', 'PATCH /api/admin/users/:id', 'POST /api/admin/users/:id/2fa/reset', 'PUT /api/admin/settings'];
   const OWNER = ['DELETE /api/files/:fileId', 'GET /api/files/:fileId/download', 'GET /api/jobs/:jobId', 'POST /api/jobs/:jobId/cancel'];
   const PROCESSING = ['POST /api/pdf/:tool'];
-  const WEBHOOK = ['POST /api/billing/webhook'];
+  const WEBHOOK = ['POST /api/billing/webhook', 'POST /api/billing/razorpay/webhook'];
   const OPERATIONAL = ['GET /metrics']; // token-gated in production, internal port, never under /api
 
   it('has no unclassified routes', () => {
@@ -524,6 +524,12 @@ describe('authorization matrix (accounts mode)', () => {
       expect((await call(r)).status, `${r} anon`).toBe(401);
       expect((await call(r, auth(u.token))).status, `${r} user`).toBe(403);
     }
+  });
+  it('the Razorpay webhook ignores sessions and requires a valid signature (or says billing is off)', async () => {
+    const u = await signup();
+    const r = await request(ctx.app).post('/api/billing/razorpay/webhook').set(auth(u.token)).set('Content-Type', 'application/json').send('{}');
+    expect([400, 503]).toContain(r.status); // 503 here: this server has no Razorpay configured, which is also a refusal
+    expect((await request(ctx.app).post('/api/billing/razorpay/webhook').set('Content-Type', 'text/plain').send('hello')).status).toBeGreaterThanOrEqual(400);
   });
   it('the webhook ignores sessions and requires a valid Stripe signature', async () => {
     const u = await signup();
