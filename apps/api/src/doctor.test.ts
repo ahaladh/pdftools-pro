@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { FakeRazorpay } from './testing/fakerazorpay.js';
 import { loadEnv } from './config/env.js';
 import { checkConfig, runDoctor } from './ops/doctor.js';
 
@@ -114,4 +115,19 @@ describe('doctor: live checks on this machine', () => {
     expect(r.checks.find((c) => c.name === 'redis')!.level).toBe('fail');
     expect(r.checks.find((c) => c.name === 'mongodb')!.level).toBe('fail');
   }, 90_000);
+});
+
+describe('doctor checks the Razorpay account live', () => {
+  it('passes with working keys, fails clearly when Subscriptions is off or the keys are wrong, and is silent when Razorpay is not configured', async () => {
+    const rz = await new FakeRazorpay().start();
+    try {
+      const base = { NODE_ENV: 'test', STORAGE_DIR: '/tmp/doctor-test-storage', RAZORPAY_KEY_ID: rz.keyId, RAZORPAY_KEY_SECRET: rz.keySecret, RAZORPAY_WEBHOOK_SECRET: 'whsec_rz_x', RAZORPAY_API_BASE: rz.base };
+      const find = async (extra: Record<string, string> = {}) => (await runDoctor(loadEnv({ ...base, ...extra }))).checks.find((c) => c.name === 'razorpay account');
+      expect(await find()).toMatchObject({ level: 'pass', detail: expect.stringContaining('Subscriptions enabled') });
+      expect(await find({ RAZORPAY_KEY_SECRET: 'wrong' })).toMatchObject({ level: 'fail', detail: expect.stringContaining('check RAZORPAY_KEY_ID') });
+      rz.subscriptionsEnabled = false;
+      expect(await find()).toMatchObject({ level: 'fail', detail: expect.stringMatching(/Subscriptions is not enabled.*enable it in the Razorpay dashboard/) });
+      expect((await runDoctor(loadEnv({ NODE_ENV: 'test', STORAGE_DIR: '/tmp/doctor-test-storage' }))).checks.find((c) => c.name === 'razorpay account')).toBeUndefined();
+    } finally { await rz.stop(); }
+  }, 60_000);
 });

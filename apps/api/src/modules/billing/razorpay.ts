@@ -46,10 +46,32 @@ export class HttpRazorpay implements RazorpayClient {
       });
     } catch (e) { throw new RazorpayError(0, 'unreachable', `Razorpay could not be reached: ${(e as Error).message}`); }
     const text = await res.text();
-    let json: { error?: { code?: string; description?: string } } & Record<string, unknown> = {};
+    let json: { error?: { code?: string; description?: string } | string } & Record<string, unknown> = {};
     try { json = text ? JSON.parse(text) : {}; } catch { /* a non-JSON error page from a proxy */ }
-    if (!res.ok) throw new RazorpayError(res.status, json.error?.code ?? 'error', json.error?.description ?? `Razorpay answered ${res.status}`);
+    if (!res.ok) {
+      // Most errors are {error:{code,description}}; a product that is not enabled on the account answers a bare {"error":"Unauthorized"}.
+      const e = typeof json.error === 'string' ? { code: json.error, description: json.error } : json.error;
+      throw new RazorpayError(res.status, e?.code ?? 'error', e?.description ?? `Razorpay answered ${res.status}`);
+    }
     return json as T;
+  }
+
+  /**
+   * Are the keys accepted, and is the Subscriptions product enabled on the account? Razorpay answers 401 for BOTH a wrong key and a
+   * product the account does not have, so a 401 from Subscriptions is told apart by asking an endpoint every account has.
+   */
+  async probe(): Promise<{ ok: boolean; reason: 'ok' | 'bad_keys' | 'subscriptions_not_enabled' | 'unreachable'; detail: string }> {
+    try {
+      await this.call('GET', '/v1/subscriptions?count=1');
+      return { ok: true, reason: 'ok', detail: 'keys accepted, Subscriptions enabled' };
+    } catch (e) {
+      if (!(e instanceof RazorpayError)) return { ok: false, reason: 'unreachable', detail: String(e) };
+      if (e.status === 0) return { ok: false, reason: 'unreachable', detail: e.message };
+      if (e.status !== 401 && e.status !== 403) return { ok: false, reason: 'unreachable', detail: `Razorpay answered ${e.status}: ${e.message}` };
+      try { await this.call('GET', '/v1/orders?count=1'); }
+      catch { return { ok: false, reason: 'bad_keys', detail: 'Razorpay rejected the key id/secret' }; }
+      return { ok: false, reason: 'subscriptions_not_enabled', detail: 'the keys work, but Razorpay Subscriptions is not enabled on this account' };
+    }
   }
 
   createSubscription(p: { planId: string; quantity: number; totalCount: number; notes: Record<string, string>; email?: string }) {

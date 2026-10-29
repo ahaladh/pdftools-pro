@@ -8,6 +8,7 @@ import { Redis } from 'ioredis';
 import mongoose from 'mongoose';
 import { processToolIsolated, engineEnv } from '@pdftools/pdf-core';
 import { ClamdScanner } from '../modules/security/antivirus.js';
+import { HttpRazorpay } from '../modules/billing/razorpay.js';
 import { adminTwoFactorRequired } from '../modules/auth/policy.js';
 import { webauthnConfig, webauthnProblems } from '../modules/auth/webauthn-config.js';
 import type { Env } from '../config/env.js';
@@ -159,6 +160,14 @@ export async function runDoctor(env: Env, opts: { deep?: boolean } = {}): Promis
     const p = await new ClamdScanner({ host: env.CLAMD_HOST, port: env.CLAMD_PORT, socketPath: env.CLAMD_SOCKET, timeoutMs: 5000 }).ping();
     checks.push({ name: 'antivirus scanner', level: p.ok ? 'pass' : env.AV_FAIL === 'closed' ? 'fail' : 'warn',
       detail: p.ok ? `clamd reachable (${p.version})` : `clamd unreachable (${p.error}): ${env.AV_FAIL === 'closed' ? 'every upload would be refused' : 'uploads are being accepted unscanned'}` });
+  }
+  if (env.RAZORPAY_KEY_ID && env.RAZORPAY_KEY_SECRET && env.RAZORPAY_WEBHOOK_SECRET) {
+    const mode = env.RAZORPAY_KEY_ID.startsWith('rzp_live_') ? 'live' : 'test';
+    const p = await new HttpRazorpay(env.RAZORPAY_KEY_ID, env.RAZORPAY_KEY_SECRET, env.RAZORPAY_API_BASE).probe();
+    checks.push({ name: 'razorpay account', level: p.ok ? (mode === 'test' && env.NODE_ENV === 'production' ? 'warn' : 'pass') : 'fail',
+      detail: p.ok ? `${p.detail} (${mode} mode${mode === 'test' && env.NODE_ENV === 'production' ? ': TEST keys in production, nobody can really pay' : ''})`
+        : p.reason === 'subscriptions_not_enabled' ? `${p.detail}: enable it in the Razorpay dashboard (Subscriptions), then retry. Until then every Razorpay checkout fails`
+          : p.reason === 'bad_keys' ? `${p.detail}: check RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET` : `Razorpay could not be checked (${p.detail.slice(0, 100)})` });
   }
   if (env.QUEUE_DRIVER === 'bullmq') {
     const r = new Redis(env.REDIS_URL!, { lazyConnect: true, maxRetriesPerRequest: 1, retryStrategy: () => null });

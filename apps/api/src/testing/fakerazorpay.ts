@@ -13,6 +13,8 @@ export class FakeRazorpay {
   seen: SeenRequest[] = [];
   /** Answer the next call with this error instead (Razorpay's `{error:{code,description}}` shape). */
   failNext: { status: number; code: string; description: string } | null = null;
+  /** Real accounts without the Subscriptions product answer 401 {"error":"Unauthorized"} (a bare string) on /v1/subscriptions and /v1/plans while every other endpoint works. */
+  subscriptionsEnabled = true;
   private subs = new Map<string, { id: string; plan_id: string; quantity: number; status: string; notes: unknown }>();
   private n = 0;
   /** The id of the subscription most recently created. */
@@ -27,7 +29,7 @@ export class FakeRazorpay {
   }
   get base() { return `http://127.0.0.1:${this.port}`; }
   async stop() { await new Promise((r) => this.server.close(r)); }
-  reset() { this.seen = []; this.failNext = null; }
+  reset() { this.seen = []; this.failNext = null; this.subscriptionsEnabled = true; }
 
   private async handle(req: IncomingMessage, res: ServerResponse) {
     const chunks: Buffer[] = []; for await (const c of req) chunks.push(c as Buffer);
@@ -38,6 +40,8 @@ export class FakeRazorpay {
     const send = (status: number, json: unknown) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(json)); };
     const expected = `Basic ${Buffer.from(`${this.keyId}:${this.keySecret}`).toString('base64')}`;
     if (req.headers.authorization !== expected) return send(401, { error: { code: 'BAD_REQUEST_ERROR', description: 'Authentication failed' } });
+    if (!this.subscriptionsEnabled && /^\/v1\/(subscriptions|plans)/.test(path)) return send(401, { error: 'Unauthorized' });
+    if (req.method === 'GET' && /^\/v1\/(orders|subscriptions)\?/.test(path)) return send(200, { entity: 'collection', count: 0, items: [] });
     if (this.failNext) { const f = this.failNext; this.failNext = null; return send(f.status, { error: { code: f.code, description: f.description } }); }
     if (req.method === 'POST' && path === '/v1/subscriptions') {
       if (typeof body.plan_id !== 'string' || typeof body.total_count !== 'number') return send(400, { error: { code: 'BAD_REQUEST_ERROR', description: 'plan_id and total_count are required' } });

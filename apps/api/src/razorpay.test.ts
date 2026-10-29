@@ -9,7 +9,7 @@ import { loadEnv } from './config/env.js';
 import { createApp } from './app.js';
 import { disconnectDb, BillingEventModel, MemberModel, TeamModel, UserModel } from './db/models.js';
 import { CaptureMailer } from './modules/mail/mailer.js';
-import { mapRazorpayStatus, verifyRazorpaySignature } from './modules/billing/razorpay.js';
+import { HttpRazorpay, RazorpayError, mapRazorpayStatus, verifyRazorpaySignature } from './modules/billing/razorpay.js';
 import type { StripeClient } from './modules/billing/service.js';
 import { FakeRazorpay } from './testing/fakerazorpay.js';
 
@@ -102,6 +102,37 @@ describe('the signature check', () => {
   it('maps Razorpay\'s states to ours; nothing is changed before the first payment', () => {
     expect(['active', 'pending', 'halted', 'paused', 'cancelled', 'completed', 'expired', 'created', 'authenticated', 'bogus'].map(mapRazorpayStatus))
       .toEqual(['active', 'past_due', 'unpaid', 'unpaid', 'canceled', 'canceled', 'canceled', null, null, null]);
+  });
+});
+
+describe('checking the account (what the real service taught us)', () => {
+  const probe = (id = rz.keyId, secret = rz.keySecret) => new HttpRazorpay(id, secret, rz.base).probe();
+  it('tells a working account, wrong keys, and a missing Subscriptions product apart (Razorpay answers 401 to both of the last two)', async () => {
+    expect(await probe()).toMatchObject({ ok: true, reason: 'ok' });
+    expect(await probe('rzp_test_wrong', 'nope')).toMatchObject({ ok: false, reason: 'bad_keys' });
+    rz.subscriptionsEnabled = false;
+    expect(await probe()).toMatchObject({ ok: false, reason: 'subscriptions_not_enabled', detail: expect.stringContaining('Subscriptions is not enabled') });
+    const down = await new HttpRazorpay(rz.keyId, rz.keySecret, 'http://127.0.0.1:1').probe();
+    expect(down).toMatchObject({ ok: false, reason: 'unreachable' });
+  });
+
+  it('reads both of Razorpay\'s error shapes: {error:{code,description}} and the bare {"error":"Unauthorized"}', async () => {
+    const c = new HttpRazorpay(rz.keyId, rz.keySecret, rz.base);
+    const req = { planId: 'p', quantity: 1, totalCount: 120, notes: {} };
+    rz.subscriptionsEnabled = false;
+    await expect(c.createSubscription(req)).rejects.toMatchObject({ status: 401, code: 'Unauthorized', message: 'Unauthorized' });
+    rz.subscriptionsEnabled = true;
+    rz.failNext = { status: 400, code: 'BAD_REQUEST_ERROR', description: 'The plan id provided does not exist' };
+    const e = await c.createSubscription(req).catch((x) => x);
+    expect(e).toBeInstanceOf(RazorpayError); expect(e).toMatchObject({ status: 400, code: 'BAD_REQUEST_ERROR', message: 'The plan id provided does not exist' });
+  });
+
+  it('a checkout on an account without Subscriptions is a plain error for the buyer (and the cause is in the log, not the page)', async () => {
+    const u = await signup();
+    rz.subscriptionsEnabled = false;
+    const r = await api(u).post('/api/billing/checkout', { plan: 'pro' });
+    expect(r.status).toBe(502); expect(r.body.error.code).toBe('billing_error');
+    expect(JSON.stringify(r.body)).not.toMatch(/unauthorized|subscriptions/i);
   });
 });
 
